@@ -6,10 +6,10 @@ import base64
 class   MinerSession(object):
 
     def __init__(self):
-        self.__dataPath     =   os.path.join(os.path.dirname(sys.modules[__name__].__file__), "Data")
-        #self.__dataPath     =   os.path.join(OKMiner.__path__[0], "Data")
-        self.__config       =   ConfigParser.RawConfigParser()
-        self.__configName   =   os.path.join(self.__dataPath,"config.ini")
+        self.__configPath   =   os.path.join(os.path.dirname(sys.modules[__name__].__file__), "Config")
+        self.__config       =   ConfigParser.ConfigParser()
+        self.__config.optionxform=str
+        self.__configName   =   os.path.join(self.__configPath,"config.ini")
         self.__session      =   None
 
     def saveConfig(self):
@@ -17,11 +17,11 @@ class   MinerSession(object):
             self.__config.write(configFile)
 
     def loadConfig(self):
-        if not os.path.exists(self.__dataPath):
-            sys.stderr.write("Data path does not exist, creating\n")
-            os.mkdir(self.__dataPath)
+        if not os.path.exists(self.__configPath):
+            sys.stderr.write("Config path does not exist, creating\n")
+            os.mkdir(self.__configPath)
         if not os.path.exists(self.__configName):
-            sys.stderr.write("Data file does not exist, creating\n")
+            sys.stderr.write("Config file does not exist, creating\n")
             self.__config.add_section("Profiles")
             self.saveConfig()
 
