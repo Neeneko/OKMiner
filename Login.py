@@ -16,3 +16,5 @@ def doLogin(session,user_name):
     else:
         raise RuntimeError,"Unexpected login redirect to [%s]" % resp.url
 
+def doConnectWithoutLogin(session):
+    session.setSession(requests.Session())

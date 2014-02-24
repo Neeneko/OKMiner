@@ -32,5 +32,5 @@ if __name__ == "__main__":
         sys.stderr.write("Profile login failure.\n")
         sys.exit()
 
-    experiment.loadExperiment(userName)
+    experiment.createExperiment(userName)
     doExperiment(session,experiment,questions)

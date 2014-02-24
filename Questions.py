@@ -25,11 +25,17 @@ class MinerQuestions(object):
     def hasQuestion(self,question_id):
         return self.__config.has_section("%s" % question_id)
 
-
     def addQuestion(self,question_id,text,answers):
         self.__config.add_section("%s" % question_id)
         self.__config.set("%s" % question_id,"Text",text)
         for idx in range(len(answers)):
             self.__config.set("%s" % (question_id),"Answer_%d" % (idx+1),answers[idx])
 
+    def getCount(self):
+        return len(self.__config.sections())
 
+    def getQuestionIds(self):
+        return [int(x) for x in self.__config.sections()]
+
+    def getText(self,question_id):
+        return self.__config.get("%s" % question_id,"Text")
