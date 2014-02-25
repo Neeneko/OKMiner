@@ -9,8 +9,6 @@ class MinerQuestions(object):
         self.__dataName     =   os.path.join(self.__dataPath,"questions.ini")
         self.__config       =   ConfigParser.ConfigParser()
         self.__config.optionxform=str
-
-    def loadQuestions(self):
         if not os.path.exists(self.__dataPath):
             sys.stderr.write("Data path does not exist, creating\n")
             os.mkdir(self.__dataPath)

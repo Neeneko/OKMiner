@@ -37,7 +37,6 @@ if __name__ == "__main__":
     parser = optparse.OptionParser(usage=usage,description=description)
     parser.add_option('-n', '--number', help="The top number of questions to output", type='int', default=128)
 
-
     options, args = parser.parse_args()
 
     if len(args) != 1:
@@ -55,7 +54,6 @@ if __name__ == "__main__":
     experiment  =   MinerExperiment()
     experiment.loadExperiment(folderName)
     sys.stderr.write("Loaded Experiment for [%s], [%s] Matches\n" % (experiment.getUserName(),experiment.getMatchCount()))
-    questions.loadQuestions()
     sys.stderr.write("Total Questions [%s]\n" %  questions.getCount())
 
     aStats  =   {}
@@ -73,5 +71,3 @@ if __name__ == "__main__":
     for idx in range(options.number):
         aStat = sortedStats[len(sortedStats) - idx - 1]
         sys.stderr.write("Question [%6d] Count [%4d] Weight [%4.2f] - %s\n" % (aStat.getId(),aStat.getCount(),aStat.getScore(),questions.getText(aStat.getId())))
-
-        #sys.stderr.write("[%16s][%64s]\n" % (matchName,matchFile))

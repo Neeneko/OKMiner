@@ -1,6 +1,12 @@
 import sys
 from lxml import html
 
+
+def getLocationId(session,location):
+    url = "http://www.okcupid.com/locquery?func=query&query=%s" % location
+    result = eval(session.get(url).text)
+    return result["locid"]
+
 class SearchFilter(object):
 
     def genFilter(self):
@@ -44,6 +50,19 @@ class ZipCodeFilter(SearchFilter):
     def genFilter(self):
         return "3,%d&lquery=%d" % (self.__distance,self.__zipCode)
 
+class LocationIdFilter(SearchFilter):
+
+    VALID_DISTANCE = [5,10,25,50,100,250,500]
+
+    def __init__(self,locid,distance):
+        if int(distance) not in ZipCodeFilter.VALID_DISTANCE:
+            raise RuntimeError,"Invalid Distance [%s]" % distance
+        self.__locId    =   locid
+        self.__distance =   distance
+
+    def genFilter(self):
+        return "3,%s&locid=%s" % (self.__distance,self.__locId)
+
 class GentationFilter(SearchFilter):
 
     CONSTANTS = {
@@ -69,6 +88,37 @@ class GentationFilter(SearchFilter):
 
     def genFilter(self):
         return "0,%d" % GentationFilter.CONSTANTS[self.__value]
+
+
+class TargetedGentationFilter(GentationFilter):
+
+
+    VALID_GENDERS       =   ["M","F"]
+    VALID_ORIENTATIONS  =   ["Strait","Bisexual","Gay"]
+
+    def __init__(self,gender,orientation):
+        if gender == "M":
+            if orientation == "Strait":
+                gentation   =   "girls who like guys"
+            elif orientation == "Bisexual":
+                gentation   =   "both who like bi guys"
+            elif orientation == "Gay":
+                gentation   =   "guys who like guys"
+            else:
+                raise RuntimeError,"Invalid Orientation [%s]" % orientation
+        elif gender == "F":
+            if orientation == "Strait":
+                gentation   =   "guys who like girls"
+            elif orientation == "Bisexual":
+                gentation   =   "both who like bi girls"
+            elif orientation == "Gay":
+                gentation   =   "girls who like girls"
+            else:
+                raise RuntimeError,"Invalid Orientation [%s]" % orientation
+        else:
+            raise RuntimeError,"Invalid Gender [%s]" % gender
+
+        super(TargetedGentationFilter,self).__init__(gentation)
 
 def genSearchURL(*args):
         url     = "http://www.okcupid.com/match?matchOrderBy=MATCH&"
@@ -99,7 +149,7 @@ def doSearch(session,url):
     i = 0
     while True:
         #sys.stderr.write("Page [%s]\n" % i)
-        page = session.getSession().get(url + "&count=%s&low=%s" % (pageSize,(1+i*pageSize)))
+        page = session.get(url + "&count=%s&low=%s" % (pageSize,(1+i*pageSize)))
         tree        =   html.fromstring(page.text)
         userNames   =   tree.xpath('//div[@class="username"]/a/text()')
         userAges    =   tree.xpath('//div[@class="userinfo"]/span[@class="age"]/text()')

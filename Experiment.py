@@ -3,74 +3,53 @@ import os
 import sys
 import ConfigParser
 
-
+from Questions import MinerQuestions
+from ProfileManager import ProfileManager
 from Profile import UserProfile,MatchProfile
 from Search import *
 
-def doExperiment(session,experiment,questions):
-    userProfile     =   UserProfile()
-    userProfile.loadFromSession(session,experiment.getUserName())
-    fileName        =   "%s.ini" %  userProfile.Info["Name"] 
-    fullName        =   os.path.join(experiment.getExperimentPath(),fileName)
- 
-    userProfile.saveProfile(fullName)
-    for question in userProfile.Questions:
-        if not questions.hasQuestion(question.Id):
-            questions.addQuestion(question.Id,question.Text,question.Answers)
-    questions.saveQuestions()
-    url = genSearchURL(AgeFilter(36,36),LastOnFilter(LastOnFilter.WEEK),ZipCodeFilter(19053,50),GentationFilter("girls who like guys"))
-    experiment.saveSearchURL(url)
-    searchResults   =   doSearch(session,url)
-
-    count           =   0
-    matchNames      =   []
-    for (matchName,matchPercent) in searchResults:
-        if matchPercent < experiment.getMinMatch():
-            continue
-        if count >= experiment.getMaxResults():
-            break
-        matchNames.append(matchName)
-        sys.stderr.write("[%3d][%32s]\n" % (matchPercent,matchName))
-        count += 1
-
-    #return
-    #matchNames   =   [ "VeganPhD" ]
-    #matchNames   =   [ "VeganPhD", "ItsMyBeat", "KimikoCat", "Sushibitch", "TheAnomie", "wintermysecret", "GLilyDances" ]
-    for matchName in matchNames:
-        matchProfile    =   MatchProfile()
-        matchProfile.loadFromSession(session,matchName)
-    
-        for question in matchProfile.Questions:
-            if not questions.hasQuestion(question.Id):
-                questions.addQuestion(question.Id,question.Text,question.Answers)
-        questions.saveQuestions()
-        fileName    =   "%s.ini" % matchProfile.Info["Name"]
-        fullName    =   os.path.join(experiment.getExperimentPath(),fileName)
- 
-        matchProfile.saveProfile(fullName)
-        experiment.saveMatch(matchProfile.Info["Name"],fullName) 
-
 class   MinerExperiment(object):
+
+    PROPERTIES  =   {
+                        "UserName"      : None,
+                        "MaxResult"     : None,
+                        "MinMatch"      : "80",
+                        "Radius"        : "50",
+                        "AgeRange"      : "10",
+                        "AgeMin"        : None,
+                        "AgeMax"        : None,
+                        "Orientation"   : None
+                    }
+
+    @staticmethod
+    def getValidProperties():
+        return MinerExperiment.PROPERTIES.keys()
 
     def __init__(self):
         self.__dataPath     =   os.path.join(os.path.dirname(sys.modules[__name__].__file__), "Data")
         self.__config       =   ConfigParser.ConfigParser()
         self.__config.optionxform=str
-        
-    def getMaxResults(self):
-        return int(self.__config.get("Settings","MaxResults"))
-
-    def getMinMatch(self):
-        return int(self.__config.get("Settings","MinMatch"))
-
-    def createExperiment(self,user_name):
-        """
-        @TODO - experiment files will come later
-        """
-        #self.__userName     =   user_name
         if not os.path.exists(self.__dataPath):
             sys.stderr.write("Data path does not exist, creating\n")
             os.mkdir(self.__dataPath)
+        self.__questions    =   MinerQuestions()
+        self.__userProfile  =   UserProfile()
+
+    def getMaxResults(self):
+        try:
+            rv = int(self.__config.get("Settings","MaxResult"))
+        except:
+            rv = -1
+        return rv
+
+    def getMinMatch(self):
+        try:
+            rv = int(self.__config.get("Settings","MinMatch"))
+        except:
+            rv = -1
+        return rv
+
+    def createExperiment(self,properties):
         expDir = datetime.datetime.now().strftime("%Y%m%d_%H%M")
         self.__expPath      =   os.path.join(self.__dataPath,expDir)
         self.__configName   =   os.path.join(self.__expPath,"experiment.ini")
@@ -79,9 +58,13 @@ class   MinerExperiment(object):
         self.__config.add_section("Settings")
         self.__config.add_section("Searches")
         self.__config.add_section("Matches")
-        self.__config.set("Settings","UserName",user_name) 
-        self.__config.set("Settings","MaxResults","5") 
-        self.__config.set("Settings","MinMatch","75")
+
+        for k,v in MinerExperiment.PROPERTIES.iteritems():
+            if k in properties.keys():
+                self.__config.set("Settings",k,properties[k])
+            else:
+                self.__config.set("Settings",k,v)
+
         self.saveConfig()
 
     def saveConfig(self):
@@ -102,40 +85,9 @@ class   MinerExperiment(object):
 
     def getUserName(self):
         return self.__config.get("Settings","UserName")
-        #return self.__userName
 
     def getExperimentPath(self):
         return self.__expPath
-
-    """
-    def saveProfile(self,profile):
-        if profile.Info["Name"] == self.getUserName():
-            fileName    =   "%s.profile.ini" %  profile.Info["Name"] 
-        else:
-            fileName    =   "%s.match.ini" % profile.Info["Name"]
-        fullName    =   os.path.join(self.__expPath,fileName)
-        parser       =   ConfigParser.ConfigParser()
-        parser.optionxform=str
-
-        parser.add_section("Info")
-        for k,v in profile.Info.iteritems():
-            parser.set("Info",k,v)
-
-        parser.add_section("Details")
-        for k,v in profile.Details.iteritems():
-            parser.set("Details",k,v)
-
-        parser.add_section("LookingFor")
-        for k,v in profile.LookingFor.iteritems():
-            parser.set("LookingFor",k,v)
-
-        parser.add_section("Essays")
-        for idx in range(len(profile.Essays)):
-            parser.set("Essays","Essay_%02d" % idx,profile.Essays[idx])
-
-        with open(fullName,'wb') as fp:
-            parser.write(fp)
-    """
         
     def saveSearchURL(self,url):
         urlCount = len(self.__config.options("Searches"))
@@ -151,3 +103,78 @@ class   MinerExperiment(object):
  
     def getMatches(self):
         return self.__config.items("Matches")
+
+    def doExperiment(self):
+        sys.stderr.write("Starting Experiment against profile [%s]\n" % self.getUserName())
+        profileManager  =   ProfileManager()
+        session         =   profileManager.doLogin(self.getUserName())
+
+
+        self.__userProfile.loadFromSession(session,self.getUserName())
+        fileName        =   "%s.ini" %  self.__userProfile.Info["Name"] 
+        fullName        =   os.path.join(self.getExperimentPath(),fileName)
+        self.__userProfile.saveProfile(fullName)
+        for question in self.__userProfile.Questions:
+            if not self.__questions.hasQuestion(question.Id):
+                self.__questions.addQuestion(question.Id,question.Text,question.Answers)
+        self.__questions.saveQuestions()
+
+        if self.__config.get("Settings","Orientation") is not None:
+            orientation = self.__config.get("Settings","Orientation") 
+        else:
+            orientation = self.__userProfile.Info["Orientation"]
+
+        gender          = self.__userProfile.Info["Gender"]
+        radius          = self.__config.get("Settings","Radius")
+        locationId      = getLocationId(session,self.__userProfile.Info["Location"])
+        baseAge         = int(self.__userProfile.Info["Age"])
+        
+        if self.__config.get("Settings","AgeRange") is None:
+            ageHigh =   baseAge
+            ageLow  =   baseAge
+        else:
+            ageHigh =   baseAge+int(self.__config.get("Settings","AgeRange"))
+            ageLow  =   baseAge-int(self.__config.get("Settings","AgeRange"))
+
+
+        if self.__config.get("Settings","AgeMin") is not None:
+            ageLow  =   int(self.__config.get("Settings","AgeMin"))
+
+        if self.__config.get("Settings","AgeMax") is not None:
+            ageHigh =   int(self.__config.get("Settings","AgeMax"))
+
+
+        #TODO - age based slicing
+        url = genSearchURL(AgeFilter(ageLow,ageHigh),LastOnFilter(LastOnFilter.WEEK),LocationIdFilter(locationId,radius),TargetedGentationFilter(gender,orientation))
+
+        sys.stderr.write("Search [%s]\n" % url)
+
+        searchResults   =   doSearch(session,url)
+
+        sys.stderr.write("Slice [%s] Results\n" % len(searchResults))
+        count           =   0
+        matchNames      =   []
+        for (matchName,matchPercent) in searchResults:
+            if self.getMinMatch() != -1 and matchPercent < self.getMinMatch():
+                continue
+            if self.getMaxResults() != -1 and count >= self.getMaxResults():
+                break
+            matchNames.append(matchName)
+            sys.stderr.write("[%3d][%32s]\n" % (matchPercent,matchName))
+            count += 1
+
+        for matchName in matchNames:
+            matchProfile    =   MatchProfile()
+            matchProfile.loadFromSession(session,matchName)
+    
+            for question in matchProfile.Questions:
+                if not self.__questions.hasQuestion(question.Id):
+                    self.__questions.addQuestion(question.Id,question.Text,question.Answers)
+            self.__questions.saveQuestions()
+            fileName    =   "%s.ini" % matchProfile.Info["Name"]
+            fullName    =   os.path.join(self.getExperimentPath(),fileName)
+ 
+            matchProfile.saveProfile(fullName)
+            self.saveMatch(matchProfile.Info["Name"],fullName) 
+
+        sys.stderr.write("Finished Experiment\n")

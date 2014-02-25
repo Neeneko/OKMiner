@@ -2,7 +2,7 @@ import re
 import sys
 import ConfigParser
 import optparse
-from Login import doConnectWithoutLogin
+#from Login import doConnectWithoutLogin
 from Session import MinerSession
 from StringIO import StringIO
 from lxml import html
@@ -24,7 +24,7 @@ class AbstractProfile(object):
 
 
     def loadFromSession(self,session,user_name):
-        page                        =   session.getSession().get('https://www.okcupid.com/profile/%s' % user_name)
+        page                        =   session.get('https://www.okcupid.com/profile/%s' % user_name)
         tree                        =   html.fromstring(page.text)
         self.Info["Name"]           =   tree.xpath('//span[@id="basic_info_sn"]/text()')[0]
         self.Info["Age"]            =   int(tree.xpath('//span[@id="ajax_age"]/text()')[0])
@@ -133,7 +133,6 @@ class UserProfile(AbstractProfile):
 
     def loadFromSession(self,session,user_name):
         AbstractProfile.loadFromSession(self,session,user_name)
-        
         link = 'http://www.okcupid.com/profile/%s/questions' % user_name
         while True:
             nextLink = self.__fillFromLink(link,session)
@@ -143,7 +142,7 @@ class UserProfile(AbstractProfile):
 
     def __fillFromLink(self,link,session):
         print "Filling From [%s]" % link
-        page = session.getSession().get(link)
+        page = session.get(link)
         tree            =   html.fromstring(page.text)
         questionIds     =   []
         for divId in tree.xpath('//div[@id]/@id'):
@@ -203,7 +202,7 @@ class MatchProfile(AbstractProfile):
 
     def __fillFromLink(self,link,session):
         print "Filling From [%s]" % link
-        page = session.getSession().get(link)
+        page = session.get(link)
         tree            =   html.fromstring(page.text)
         questionIds     =   []
         for divId in tree.xpath('//div[@id]/@id'):
