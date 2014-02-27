@@ -104,7 +104,12 @@ def doStuff(experiments,options,args):
             propValue = experiments.getProperty(args[0],propName)
             sys.stderr.write("%-16s - %s\n" % (propName,propValue))
     elif options.copy:
-        raise NotImplementedError
+        checkExist(args[0])
+        checkNotExist(args[1])
+        experiments.newExperiment(args[1])
+        for propName in experiments.getPropertyNames(args[0]):
+            propValue = experiments.getProperty(args[0],propName)
+            experiments.setProperty(args[1],propName,propValue)
     else:
         raise RuntimeError,"Must select what to do"
 

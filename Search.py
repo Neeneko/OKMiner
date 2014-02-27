@@ -1,3 +1,4 @@
+import re
 import sys
 from lxml import html
 
@@ -131,25 +132,47 @@ def genSearchURL(*args):
         for idx in range(len(filters)):
             url += "filter%d=%s&" % (idx+1,filters[idx].genFilter())
 
-        #url += "count=512&"
-        #url += "count=512&"
-        url += "update_prefs=0"
+        #stuff we do not know what it does
+        #url += "update_prefs=0"
+        url += "custom_search=0&fromWhoOnline=0&mygender=m&update_prefs=1&sort_type=0&sa=1&using_saved_search="
 
         """
         "http://www.okcupid.com/match?filter1=0,63&filter2=2,18,98&filter3=5,2678400&filter4=1,1&locid=0&timekey=1&matchOrderBy=MATCH&custom_search=0&fromWhoOnline=0&mygender=m&update_prefs=1&sort_type=0&sa=1&using_saved_search=&count=5"
         """
         return url
 
+class SearchResult(object):
+
+    def __init__(self,name,percent,age):
+        self.Name       =   name
+        self.Percent    =   percent
+        self.Age        =   int(age)
+
+    def __cmp__(self,other):
+        return cmp(other.Percent,self.Percent)
+
 def doSearch(session,url):
     cutOff      =   0
     pageSize    =   32
     rv  =   []
     
-    #for i in range(32):
+
+    #TODO - we need to figure out timekey
     i = 0
+    time = 1
     while True:
-        #sys.stderr.write("Page [%s]\n" % i)
-        page = session.get(url + "&count=%s&low=%s" % (pageSize,(1+i*pageSize)))
+        newURL = url + "&timekey=%s&count=%s&low=%s" % (time,pageSize,(1+i*pageSize))
+        if i == 0:
+            newURL += "#Search"
+
+        sys.stderr.write("URL [%s]\n" % (newURL)) 
+        page = session.get(newURL)
+        sys.stderr.write("Page [%s] [%s:%s] [%s]\n" % (i,page.status_code,page.reason,page.url))
+        time,_ = re.search('CurrentGMT = new Date\(([\d]+)\*([\d]+)\)',page.text).groups()
+        sys.stderr.write("Index [%s]\n" % time)
+        #gmtIndex = page.text.find("CurrentGMT")
+        #sys.stderr.write("GMTIndex [%d]\n" % gmtIndex)
+
         tree        =   html.fromstring(page.text)
         userNames   =   tree.xpath('//div[@class="username"]/a/text()')
         userAges    =   tree.xpath('//div[@class="userinfo"]/span[@class="age"]/text()')
@@ -161,17 +184,15 @@ def doSearch(session,url):
             if idx != -1:
                 percents.append(int(raw[:idx]))
 
-
         if len(userNames) != len(percents):
             raise RuntimeError,"Mismatch between Match [%s] and Profiles [%s]" % (len(percents),len(userNames))
 
         for idx in range(len(userNames)):
-            rv.append( (userNames[idx],percents[idx]) )
-            #sys.stderr.write("[%3d%%] - %s - %s - %s\n" % (percents[idx],userAges[idx],userNames[idx],userLocs[idx]))
+            rv.append( SearchResult(userNames[idx],percents[idx],userAges[idx]) )
+            sys.stderr.write("[%3d%%] - %s - %s - %s\n" % (percents[idx],userAges[idx],userNames[idx],userLocs[idx]))
 
-        
         #rv  +=  userNames
-        if percents[-1] > cutOff and len(percents) == pageSize:
+        if len(percents) != 0 and percents[-1] > cutOff and len(percents) == pageSize:
             i+=1
         else:
             break

@@ -3,7 +3,8 @@ import sys
 import ConfigParser
 import optparse
 #from Login import doConnectWithoutLogin
-from Session import MinerSession
+#from Session import MinerSession
+from ProfileManager import ProfileManager
 from StringIO import StringIO
 from lxml import html
 
@@ -122,8 +123,8 @@ class UserProfile(AbstractProfile):
     class UserAnswer(object):
         def __init__(self,qid):
             self.Id         =   qid
-            self.Selected   =   None
-            self.Accepted   =   None
+            self.Selected   =   0
+            self.Accepted   =   0
             self.Importance =   None
 
     def __init__(self):
@@ -141,7 +142,7 @@ class UserProfile(AbstractProfile):
             link = 'http://www.okcupid.com%s' % nextLink
 
     def __fillFromLink(self,link,session):
-        print "Filling From [%s]" % link
+        sys.stderr.write("Filling From [%s]\n" % link)
         page = session.get(link)
         tree            =   html.fromstring(page.text)
         questionIds     =   []
@@ -156,22 +157,31 @@ class UserProfile(AbstractProfile):
                 except ValueError:
                     pass 
         for questionId in questionIds:
+            #sys.stderr.write("QuestionId [%d]\n" % questionId)
             #----------------------------------------------------------------------------
-            question    =   AbstractProfile.Question(questionId)
-            question.Text = tree.xpath('//p[@id="qtext_%d"]/text()' % questionId)[0].encode('ascii','ignore').strip() 
-            labels = tree.xpath('//form[@id="answer_%s"]/label/text()' % questionId)
-            count   =    len(tree.xpath('//form[@id="answer_%s"]/label/input[@name="my_answer"]' % questionId))
-            question.Answers  = labels[:count]
+            question            =   AbstractProfile.Question(questionId)
+            question.Text       =   tree.xpath('//div[@id="qtext_%d"]/p/text()' % questionId)[0].encode('ascii','ignore').strip() 
+            answers             =   tree.xpath('//ul[@id="self_answers_%s"]/li/text()' % questionId)
+            question.Answers    =   answers
             self.Questions.append(question)
             #----------------------------------------------------------------------------
             answer      =   UserProfile.UserAnswer(questionId)
-            answer.Selected = int(tree.xpath('//div/input[@id="question_%s_answer"]/@value' % questionId)[0])
-            answer.Accepted = int(tree.xpath('//div/input[@id="question_%s_match_answers"]/@value' % questionId)[0])
+            selected = tree.xpath('//form[@name="answer_%s"]/div/input[@name="my_answer"]' % questionId)
 
-            answer.Importance = int(tree.xpath('//div/input[@id="question_%s_importance"]/@value' % questionId)[0])
+            for idx in range(len(selected)):
+                if "checked" in selected[idx].values():
+                    answer.Selected = idx+1
+
+            acceptable  = tree.xpath('//form[@name="answer_%s"]/div[@class="container acceptable_answers"]/input[@checked]/@value' % questionId)
+            for accept in acceptable:
+                if accept == 'irrelevant':
+                    continue
+                answer.Accepted += (1<<(int(accept)))
+            importance = tree.xpath('//form[@name="answer_%s"]/div[@class="container importance"]/div[@class="importance_radios"]/input[@checked]/@value' % questionId)
+            if len(importance) == 1:
+                answer.Importance = int(importance[0])
             if answer.Selected != 0:
                 self.Answers[questionId] = answer
-
         nextLink = tree.xpath('//li[@class="next"]/a/@href')
         if len(nextLink) != 0:
             return nextLink[0]
@@ -183,6 +193,27 @@ class UserProfile(AbstractProfile):
         config.add_section("Answers")
         for k,v in self.Answers.iteritems():
             config.set("Answers","%s" % k,"%s,%s,%s" % (v.Selected,v.Accepted,v.Importance))
+
+    def printAnswers(self):
+        sys.stderr.write("[%d] Total Questiosn\n" % len(self.Questions))
+        for question in self.Questions:
+            if question.Id not in self.Answers:
+                continue
+            sys.stderr.write("[%8d] Question:   %s\n" % (question.Id,question.Text))
+            for idx in range(len(question.Answers)):
+                if idx+1 == self.Answers[question.Id].Selected:
+                    selected = "[X]"
+                else:
+                    selected = "[ ]"
+
+                if (1 << idx+1) & self.Answers[question.Id].Accepted:
+                    accepted = "[X]"
+                else:
+                    accepted = "[ ]"
+
+                sys.stderr.write("[%8d]\t%s%s %s\n" % (question.Id,selected,accepted,question.Answers[idx]))
+            sys.stderr.write("[%8d]\tImportance: %s\n" % (question.Id,self.Answers[question.Id].Importance))
+
 
 class MatchProfile(AbstractProfile):
 
@@ -200,8 +231,20 @@ class MatchProfile(AbstractProfile):
                 break;
             link = 'http://www.okcupid.com%s' % nextLink
 
+    def fillConfig(self,config):
+        AbstractProfile.fillConfig(self,config)
+        config.add_section("Answers")
+        for idx in range(len(self.Answers)):
+            config.set("Answers","%d" % idx,self.Answers[idx])
+
+    def drainConfig(self,config):
+        AbstractProfile.drainConfig(self,config)
+        keys = sorted(config.options("Answers"))
+        for key in keys:
+            self.Answers.append(int(config.get("Answers",key)))
+
     def __fillFromLink(self,link,session):
-        print "Filling From [%s]" % link
+        sys.stderr.write("Filling From [%s]\n" % link)
         page = session.get(link)
         tree            =   html.fromstring(page.text)
         questionIds     =   []
@@ -216,46 +259,58 @@ class MatchProfile(AbstractProfile):
                 except ValueError:
                     pass 
         for questionId in questionIds:
+            #sys.stderr.write("QuestionId [%d]\n" % questionId)
             #----------------------------------------------------------------------------
-            question    =   AbstractProfile.Question(questionId)
-            question.Text = tree.xpath('//p[@id="qtext_%d"]/text()' % questionId)[0].encode('ascii','ignore').strip() 
-            labels = tree.xpath('//form[@id="answer_%s"]/label/text()' % questionId)
-            count   =    len(tree.xpath('//form[@id="answer_%s"]/label/input[@name="my_answer"]' % questionId))
-            question.Answers  = [ x.encode('ascii','ignore').strip() for x in labels[:count] ] 
-            self.Questions.append(question)
-            self.Answers.append(questionId)
+            question            =   AbstractProfile.Question(questionId)
+            question.Text       =   tree.xpath('//div[@id="qtext_%d"]/p/text()' % questionId)[0].encode('ascii','ignore').strip() 
 
+            answers = tree.xpath('//form[@name="answer_%s"]/div/label[@class="radio"]/text()' % questionId)
+            question.Answers    =   answers
+            self.Questions.append(question)
+            #----------------------------------------------------------------------------
+            self.Answers.append(questionId)
+            #----------------------------------------------------------------------------
         nextLink = tree.xpath('//li[@class="next"]/a/@href')
         if len(nextLink) != 0:
             return nextLink[0]
         else:
             return None
 
-    def fillConfig(self,config):
-        AbstractProfile.fillConfig(self,config)
-        config.add_section("Answers")
-        for idx in range(len(self.Answers)):
-            config.set("Answers","%d" % idx,self.Answers[idx])
+    def printAnswers(self):
+        sys.stderr.write("[%d] Total Questiosn\n" % len(self.Questions))
+        for question in self.Questions:
+            if question.Id not in self.Answers:
+                continue
+            sys.stderr.write("[%8d] Question:   %s\n" % (question.Id,question.Text))
+            for idx in range(len(question.Answers)):
+                sys.stderr.write("[%8d]\t%s\n" % (question.Id,question.Answers[idx]))
 
-    def drainConfig(self,config):
-        AbstractProfile.drainConfig(self,config)
-        keys = sorted(config.options("Answers"))
-        for key in keys:
-            self.Answers.append(int(config.get("Answers",key)))
+
 
 if __name__ == "__main__":
-    usage = "usage: %prog [options] matchname"
+    usage = "usage: %prog [options] username matchname"
     parser = optparse.OptionParser()
     options, args = parser.parse_args()
 
-    if len(args) != 1:
-        sys.stderr.write("Please supply profile examine\n")
-    matchName = args[0]
+    if len(args) == 1:
+        userName    =   args[0]
+        matchName   =   args[0]
+    elif len(args) == 2:
+        userName    =   args[0]
+        matchName   =   args[1]
+    else:
+        parser.print_help()
+        sys.exit()
 
 
-    session         =   MinerSession()
-    doConnectWithoutLogin(session)
-    matchProfile    =   MatchProfile(session,matchName)
-    rv = matchProfile.saveToString()
-    sys.stderr.write(rv)
+    profileManager  =   ProfileManager()
+    session         =   profileManager.doLogin(userName)
+    if userName == matchName:
+        profile     =   UserProfile()
+    else:
+        profile     =   MatchProfile()
+
+    profile.loadFromSession(session,matchName)
+    sys.stderr.write(profile.saveToString())
+    profile.printAnswers()
 

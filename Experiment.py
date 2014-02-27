@@ -18,7 +18,8 @@ class   MinerExperiment(object):
                         "AgeRange"      : "10",
                         "AgeMin"        : None,
                         "AgeMax"        : None,
-                        "Orientation"   : None
+                        "Orientation"   : None,
+                        "SkipVisit"     : False
                     }
 
     @staticmethod
@@ -34,6 +35,9 @@ class   MinerExperiment(object):
             os.mkdir(self.__dataPath)
         self.__questions    =   MinerQuestions()
         self.__userProfile  =   UserProfile()
+
+    def getSkipVisit(self):
+        return bool(self.__config.get("Settings","SkipVisit"))
 
     def getMaxResults(self):
         try:
@@ -145,36 +149,44 @@ class   MinerExperiment(object):
 
 
         #TODO - age based slicing
-        url = genSearchURL(AgeFilter(ageLow,ageHigh),LastOnFilter(LastOnFilter.WEEK),LocationIdFilter(locationId,radius),TargetedGentationFilter(gender,orientation))
+        searchResults   =   []
+        for i in range(ageLow,ageHigh+1):
+        #for i in range(24,26):
+            url = genSearchURL(AgeFilter(i,i),LastOnFilter(LastOnFilter.WEEK),LocationIdFilter(locationId,radius),TargetedGentationFilter(gender,orientation))
 
-        sys.stderr.write("Search [%s]\n" % url)
+            sys.stderr.write("Search [%s]\n" % url)
 
-        searchResults   =   doSearch(session,url)
-
-        sys.stderr.write("Slice [%s] Results\n" % len(searchResults))
+            oneSearch       =   doSearch(session,url)
+            searchResults   +=  oneSearch
+            sys.stderr.write("Slice [%s] Results [%s] Cumulative [%s]\n" % (i,len(oneSearch),len(searchResults)))
+        sys.stderr.write("Before Cut [%s] Results\n" % len(searchResults))
         count           =   0
         matchNames      =   []
-        for (matchName,matchPercent) in searchResults:
-            if self.getMinMatch() != -1 and matchPercent < self.getMinMatch():
+        for searchResult in sorted(searchResults):
+           
+            if self.getMinMatch() != -1 and searchResult.Percent < self.getMinMatch():
                 continue
             if self.getMaxResults() != -1 and count >= self.getMaxResults():
                 break
-            matchNames.append(matchName)
-            sys.stderr.write("[%3d][%32s]\n" % (matchPercent,matchName))
+            matchNames.append(searchResult.Name)
+            sys.stderr.write("[%3d][%2d][%32s]\n" % (searchResult.Percent,searchResult.Age,searchResult.Name))
             count += 1
 
-        for matchName in matchNames:
-            matchProfile    =   MatchProfile()
-            matchProfile.loadFromSession(session,matchName)
+
+        sys.stderr.write("After Cut [%s] Results\n" % len(matchNames))
+        if not self.getSkipVisit():
+            for matchName in matchNames:
+                matchProfile    =   MatchProfile()
+                matchProfile.loadFromSession(session,matchName)
     
-            for question in matchProfile.Questions:
-                if not self.__questions.hasQuestion(question.Id):
-                    self.__questions.addQuestion(question.Id,question.Text,question.Answers)
-            self.__questions.saveQuestions()
-            fileName    =   "%s.ini" % matchProfile.Info["Name"]
-            fullName    =   os.path.join(self.getExperimentPath(),fileName)
+                for question in matchProfile.Questions:
+                    if not self.__questions.hasQuestion(question.Id):
+                        self.__questions.addQuestion(question.Id,question.Text,question.Answers)
+                self.__questions.saveQuestions()
+                fileName    =   "%s.ini" % matchProfile.Info["Name"]
+                fullName    =   os.path.join(self.getExperimentPath(),fileName)
  
-            matchProfile.saveProfile(fullName)
-            self.saveMatch(matchProfile.Info["Name"],fullName) 
+                matchProfile.saveProfile(fullName)
+                self.saveMatch(matchProfile.Info["Name"],fullName) 
 
         sys.stderr.write("Finished Experiment\n")
