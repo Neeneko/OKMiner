@@ -25,9 +25,9 @@ class MinerQuestions(object):
 
     def addQuestion(self,question_id,text,answers):
         self.__config.add_section("%s" % question_id)
-        self.__config.set("%s" % question_id,"Text",text)
+        self.__config.set("%s" % question_id,"Text",text.encode('ascii','ignore'))
         for idx in range(len(answers)):
-            self.__config.set("%s" % (question_id),"Answer_%d" % (idx+1),answers[idx])
+            self.__config.set("%s" % (question_id),"Answer_%d" % (idx+1),answers[idx].encode('ascii','ignore'))
 
     def getCount(self):
         return len(self.__config.sections())
@@ -37,3 +37,12 @@ class MinerQuestions(object):
 
     def getText(self,question_id):
         return self.__config.get("%s" % question_id,"Text")
+
+    def getAnswers(self,question_id):
+        rv = []
+        for i in range(8):
+            qid = "%s" % (question_id)
+            key = "Answer_%d" % (i+1)
+            if self.__config.has_option(qid,key):
+                rv.append( self.__config.get(qid,key))
+        return rv
