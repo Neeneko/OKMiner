@@ -46,7 +46,7 @@ class AbstractProfile(object):
         page                        =   session.get('https://www.okcupid.com/profile/%s' % user_name)
         tree                        =   html.fromstring(page.text)
         self.Info["Name"]           =   tree.xpath('//span[@id="basic_info_sn"]/text()')[0]
-        self.Info["Age"]            =   int(tree.xpath('//span[@id="ajax_age"]/text()')[0])
+        self.Info["Age"]            =   tree.xpath('//span[@id="ajax_age"]/text()')[0]
         self.Info["Gender"]         =   tree.xpath('//span[@id="ajax_gender"]/text()')[0]
         self.Info["Orientation"]    =   tree.xpath('//span[@id="ajax_orientation"]/text()')[0]
         self.Info["Status"]         =   tree.xpath('//span[@id="ajax_status"]/text()')[0]
@@ -64,8 +64,14 @@ class AbstractProfile(object):
 
         ageRaw                      =   re.split(' ',tree.xpath('//li[@id="ajax_ages"]/text()')[0])
         ageList                     =   re.split(u'\u2013',ageRaw[1])
-        self.LookingFor["AgeLow"]   =   int(ageList[0])
-        self.LookingFor["AgeHigh"]  =   int(ageList[1])
+        self.LookingFor["AgeLow"]   =   ageList[0]
+        self.LookingFor["AgeHigh"]  =   ageList[1]
+
+        for k in self.LookingFor.keys():
+            self.LookingFor[k] = self.LookingFor[k].encode('ascii','ignore').strip() 
+
+        for k in self.Info.keys():
+            self.Info[k] = self.Info[k].encode('ascii','ignore').strip() 
 
         for idx in range(10):
             try:
@@ -388,11 +394,21 @@ class MatchProfile(AbstractProfile):
 
     def __init__(self):
         AbstractProfile.__init__(self)
-        self.Questions  =   []
-        self.Answers    =   []
+        self.Questions      =   []
+        self.Answers        =   []
+        self.Percentages    =   {}
 
     def loadFromSession(self,session,user_name):
         AbstractProfile.loadFromSession(self,session,user_name)
+        link = 'http://www.okcupid.com/profile/%s' % user_name
+        page = session.get(link)
+        tree            =   html.fromstring(page.text)
+        percentages     =   tree.xpath('//div[@id="percentages"]/span')
+        for percentage in percentages:
+            assert len(percentage.values()) == 1
+            idx = percentage.text.find('%')
+            self.Percentages[percentage.values()[0].capitalize()] = int(percentage.text[:idx])
+
         link = 'http://www.okcupid.com/profile/%s/questions?she_care=1' % user_name
         while True:
             nextLink = self.__fillFromLink(link,session)
@@ -405,12 +421,18 @@ class MatchProfile(AbstractProfile):
         config.add_section("Answers")
         for idx in range(len(self.Answers)):
             config.set("Answers","%d" % idx,self.Answers[idx])
+        config.add_section("Percentages")
+        for k,v in self.Percentages.iteritems():
+            config.set("Percentages",k,"%d" % v)
+
 
     def drainConfig(self,config):
         AbstractProfile.drainConfig(self,config)
         keys = sorted(config.options("Answers"))
         for key in keys:
             self.Answers.append(int(config.get("Answers",key)))
+        for (k,v) in config.items("Percentages"):
+            self.Percentages[k] = int(v)
 
     def __fillFromLink(self,link,session):
         sys.stderr.write("Filling From [%s]\n" % link)
@@ -481,5 +503,5 @@ if __name__ == "__main__":
 
     profile.loadFromSession(session,matchName)
     sys.stderr.write(profile.saveToString())
-    profile.printAnswers()
+    #profile.printAnswers()
 

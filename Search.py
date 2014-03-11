@@ -121,19 +121,34 @@ class TargetedGentationFilter(GentationFilter):
 
         super(TargetedGentationFilter,self).__init__(gentation)
 
+class MatchOrder(object):
+
+    VALID_ORDERS=["MATCH","ENEMY"]
+
+    def __init__(self,order):
+        if order not in MatchOrder.VALID_ORDERS:
+            raise RuntimeError,"Invalid Order [%s]" % order
+        self.__order = order
+
+    def genFilter(self):
+        return "matchOrderBy=%s" % self.__order
+
 def genSearchURL(*args):
-        url     = "http://www.okcupid.com/match?matchOrderBy=MATCH&"
+        url     = "http://www.okcupid.com/match?"
         filters = []
+
 
         for arg in args:
             if isinstance(arg,SearchFilter):
                 filters.append(arg)
+            else:
+                url += "%s&" % arg.genFilter()
 
         for idx in range(len(filters)):
             url += "filter%d=%s&" % (idx+1,filters[idx].genFilter())
 
         #stuff we do not know what it does
-        #url += "update_prefs=0"
+        #@TODO - mygender is hardwired to m, should fix
         url += "custom_search=0&fromWhoOnline=0&mygender=m&update_prefs=1&sort_type=0&sa=1&using_saved_search="
 
         """
@@ -143,21 +158,24 @@ def genSearchURL(*args):
 
 class SearchResult(object):
 
-    def __init__(self,name,percent,age):
+    def __init__(self,name,percent,age,loc,type):
         self.Name       =   name
         self.Percent    =   percent
         self.Age        =   int(age)
+        self.Loc        =   loc
+        self.Type       =   type
+
+    def __str__(self):
+        return "[%3d%%][%s] - %s - %s - %s" % (self.Percent,self.Type,self.Age,self.Name,self.Loc)
 
     def __cmp__(self,other):
         return cmp(other.Percent,self.Percent)
 
-def doSearch(session,url):
-    cutOff      =   0
+def doSearch(session,url,min_match):
     pageSize    =   32
     rv  =   []
     
 
-    #TODO - we need to figure out timekey
     i = 0
     time = 1
     while True:
@@ -178,21 +196,27 @@ def doSearch(session,url):
         userAges    =   tree.xpath('//div[@class="userinfo"]/span[@class="age"]/text()')
         userLocs    =   tree.xpath('//div[@class="userinfo"]/span[@class="location"]/text()')
         rawPercents =   tree.xpath('//div[@class="match_card_text"]/div/text()')
-        percents    =   [] 
+        percents    =   []
+        i           =   0
+
+        #@TODO - This is pretty sloppy
         for raw in rawPercents:
             idx = raw.find('%')
             if idx != -1:
-                percents.append(int(raw[:idx]))
+                percent = (int(raw[:idx]))
+                percents.append(percent)
+                if percent >= min_match:
+                    searchResult = SearchResult(userNames[i],percent,userAges[i],userLocs[i],raw[idx+1:].strip())
+                    sys.stderr.write("%s\n" % (searchResult))
+                    rv.append( searchResult )
+                    i += 1
+                else:
+                    return rv
 
         if len(userNames) != len(percents):
             raise RuntimeError,"Mismatch between Match [%s] and Profiles [%s]" % (len(percents),len(userNames))
 
-        for idx in range(len(userNames)):
-            rv.append( SearchResult(userNames[idx],percents[idx],userAges[idx]) )
-            sys.stderr.write("[%3d%%] - %s - %s - %s\n" % (percents[idx],userAges[idx],userNames[idx],userLocs[idx]))
-
-        #rv  +=  userNames
-        if len(percents) != 0 and percents[-1] > cutOff and len(percents) == pageSize:
+        if len(percents) != 0 and len(percents) == pageSize:
             i+=1
         else:
             break
