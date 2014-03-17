@@ -1,0 +1,63 @@
+body {
+    margin: 0;
+    /* padding: 0 10px 0 10px; */
+    height: 100%;
+    overflow-y: auto;
+}
+
+#content {
+    margin: 113px 4px 0px 142px;
+    display: block;
+    border: 1px solid #888;
+}
+
+#header {
+    display: block;
+    top: 0px;
+    left: 0px;
+    width: 100%;
+    height: 112px;
+    position: fixed;
+    border: 1px solid #888;
+}
+
+#navigation {
+    display: block;
+    top: 113px;
+    left: 0px;
+    width: 142px;
+    height: 100%;
+    position: fixed;
+    border: 1px solid #888;
+}
+
+.barGraph {
+    background:  bottom left;
+    border-bottom: 3px solid #333;
+    font: 9px Helvetica, Geneva, sans-serif;
+    height: 200px;
+    margin: 1em 0;
+    padding: 0;
+    position: relative;
+}
+    
+.barGraph li {
+    background: #AAA repeat-y top right;
+    border: 1px solid #555;
+    border-bottom: none;
+    bottom: 0; 
+    color: #FFF;
+    margin: 0; 
+    padding: 0 0 0 0;
+    position: absolute;
+    list-style: none;
+    text-align: center;
+    width: 39px;
+}
+    
+.barGraph li.p1{ background-color:#666666 }
+.barGraph li.p2{ background-color:#888888 }
+.barGraph li.p3{ background-color:#AAAAAA }
+
+* html #header {position: absolute;}
+* html #navigation {position: absolute;}

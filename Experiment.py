@@ -1,9 +1,9 @@
 import datetime
 import os
+import gc
 import sys
 import ConfigParser
 
-from Questions import MinerQuestions
 from ProfileManager import ProfileManager
 from Profile import UserProfile,MatchProfile
 from Search import *
@@ -20,7 +20,9 @@ class   MinerExperiment(object):
                         "AgeMax"        : None,
                         "Orientation"   : None,
                         "SkipVisit"     : False,
-                        "IncludeEnemy"  : False
+                        "IncludeEnemy"  : False,
+                        "SearchTypes"   : "Match",
+                        "Gentation"     : None
                     }
 
     @staticmethod
@@ -34,11 +36,13 @@ class   MinerExperiment(object):
         if not os.path.exists(self.__dataPath):
             sys.stderr.write("Data path does not exist, creating\n")
             os.mkdir(self.__dataPath)
-        self.__questions    =   MinerQuestions()
         self.__userProfile  =   UserProfile()
 
     def getSkipVisit(self):
         return bool(self.__config.get("Settings","SkipVisit"))
+
+    def getGentation(self):
+        return self.__config.get("Settings","Gentation")
 
     def getMaxResults(self):
         try:
@@ -61,7 +65,12 @@ class   MinerExperiment(object):
             rv = -1
         return rv
 
-
+    def getSearchTypes(self):
+        try:
+            rv = re.split(",",self.__config.get("Settings","SearchTypes"))
+        except:
+            rv = ["Match"]
+        return rv
 
     def createExperiment(self,properties):
         expDir = datetime.datetime.now().strftime("%Y%m%d_%H%M")
@@ -71,9 +80,10 @@ class   MinerExperiment(object):
         os.mkdir(self.__expPath)
         self.__config.add_section("Settings")
         self.__config.add_section("Searches")
+        """
         self.__config.add_section("Matches")
         self.__config.add_section("Enemies")
-
+        """
         for k,v in MinerExperiment.PROPERTIES.iteritems():
             if k in properties.keys():
                 self.__config.set("Settings",k,properties[k])
@@ -97,6 +107,37 @@ class   MinerExperiment(object):
             raise RuntimeError,"No experiment config found in folder"
 
         self.loadConfig(configName)
+        userName,userFile   =   self.getProfiles("User")[0]
+
+        self.__userProfile = UserProfile()
+        self.__userProfile.loadFromConfig(userFile)
+
+    def getUserProfile(self):
+        return self.__userProfile
+
+    def getAgeRange(self):
+        baseAge         = int(self.__userProfile.Info["Age"])
+        
+        if self.__config.get("Settings","AgeRange") is None:
+            ageHigh =   baseAge
+            ageLow  =   baseAge
+        else:
+            ageHigh =   baseAge+int(self.__config.get("Settings","AgeRange"))
+            ageLow  =   baseAge-int(self.__config.get("Settings","AgeRange"))
+        try:
+            if self.__config.get("Settings","AgeMin") is not None:
+                ageLow  =   int(self.__config.get("Settings","AgeMin"))
+        except:
+            pass
+
+        try:
+            if self.__config.get("Settings","AgeMax") is not None:
+                ageHigh =   int(self.__config.get("Settings","AgeMax"))
+        except:
+            pass
+
+
+        return (ageLow,ageHigh)
 
     def getUserName(self):
         return self.__config.get("Settings","UserName")
@@ -104,32 +145,26 @@ class   MinerExperiment(object):
     def getExperimentPath(self):
         return self.__expPath
         
-    def saveSearchURL(self,url):
-        urlCount = len(self.__config.options("Searches"))
-        self.__config.set("Searches","Search_%d" % (urlCount + 1),url) 
-        self.saveConfig()
-        
-    def saveMatch(self,match_name,match_file_name):
-        self.__config.set("Matches",match_name,match_file_name)
+    def saveSearch(self,match_type,age,names):
+        self.__config.set("Searches","%s,%s" % (match_type,age),"%s" % str(names)) 
         self.saveConfig()
 
-    def getMatchCount(self):
-        return len(self.__config.options("Matches"))
- 
-    def getMatches(self):
-        return self.__config.items("Matches")
+    def getSearches(self,match_type):
+        rv = {}
+        for searchName,searchResults in self.__config.items("Searches"):
+            splitList = re.split(',',searchName)
+            if splitList[0] == match_type:
+                rv[int(splitList[1])] = eval(searchResults)
+        return rv 
 
-    def saveEnemy(self,match_name,match_file_name):
-        self.__config.set("Enemies",match_name,match_file_name)
+    def saveProfile(self,match_type,match_name,match_file_name):
+        if match_type not in self.__config.sections():
+            self.__config.add_section(match_type)
+        self.__config.set(match_type,match_name,match_file_name)
         self.saveConfig()
 
-    def getEnemiesCount(self):
-        return len(self.__config.options("Enemies"))
- 
-    def getEnemies(self):
-        return self.__config.items("Enemies")
-
-
+    def getProfiles(self,match_type):
+        return self.__config.items(match_type)
 
     def doExperiment(self):
         sys.stderr.write("Starting Experiment against profile [%s]\n" % self.getUserName())
@@ -141,10 +176,7 @@ class   MinerExperiment(object):
         fileName        =   "%s.ini" %  self.__userProfile.Info["Name"] 
         fullName        =   os.path.join(self.getExperimentPath(),fileName)
         self.__userProfile.saveProfile(fullName)
-        for question in self.__userProfile.Questions:
-            if not self.__questions.hasQuestion(question.Id):
-                self.__questions.addQuestion(question.Id,question.Text,question.Answers)
-        self.__questions.saveQuestions()
+        self.saveProfile("User",self.__userProfile.Info["Name"],fullName)
 
         if self.__config.get("Settings","Orientation") is not None:
             orientation = self.__config.get("Settings","Orientation") 
@@ -170,7 +202,6 @@ class   MinerExperiment(object):
         if self.__config.get("Settings","AgeMax") is not None:
             ageHigh =   int(self.__config.get("Settings","AgeMax"))
 
-
         matchResults    =   []
 
         def CountType(results,type):
@@ -187,66 +218,54 @@ class   MinerExperiment(object):
                     rv.append(result.Type)
             return rv
 
-        for i in range(ageLow,ageHigh+1):
-            url = genSearchURL(MatchOrder("MATCH"),AgeFilter(i,i),LastOnFilter(LastOnFilter.WEEK),LocationIdFilter(locationId,radius),TargetedGentationFilter(gender,orientation))
+        for searchType in self.getSearchTypes():
+            matches = []
+            for i in range(ageLow,ageHigh+1):
+                gc.collect()
+                url = genSearchURL(MatchOrder(searchType.upper()),AgeFilter(i,i),LastOnFilter(LastOnFilter.WEEK),LocationIdFilter(locationId,radius),TargetedGentationFilter(gender,orientation))
+                sys.stderr.write("[%s][%s] Search [%s]\n" % (searchType,i,url))
+                results         =   doSearch(session,url)
+                self.saveSearch(searchType,i,results)
+                saved           =   0                
+                for result in results:
+                    sys.stderr.write("[%s][%s] Loading [%s]\n" % (searchType,i,result))
+                    matchProfile    =   MatchProfile()
+                    matchProfile.loadFromSession(session,result)
 
-            sys.stderr.write("Search [%s]\n" % url)
-            self.saveSearchURL(url)
-            oneSearch       =   doSearch(session,url,self.getMinMatch())
-            matchResults    +=  oneSearch
-            sys.stderr.write("Slice [%s] Match [%s] Cumulative [%s]\n" % (i,len(oneSearch),len(matchResults)))
+                    sys.stderr.write("[%s][%s] Answers [%s]\n" % (searchType,i,len(matchProfile.Answers)))
+                    percent = matchProfile.Percentages[searchType]
+                    sys.stderr.write("[%s][%s] Filtering - [%s]\n" % (searchType,i,percent))
 
-            if self.getIncludeEnemy():
-                url = genSearchURL(MatchOrder("ENEMY"),AgeFilter(i,i),LastOnFilter(LastOnFilter.WEEK),LocationIdFilter(locationId,radius),TargetedGentationFilter(gender,orientation))
-                sys.stderr.write("Search [%s]\n" % url)
-                self.saveSearchURL(url)
+                    if self.getMinMatch() != -1 and percent < self.getMinMatch():
+                        break
 
-                oneSearch       =   doSearch(session,url,self.getMinMatch())
-                matchResults    +=  oneSearch
-                sys.stderr.write("Slice [%s] Enemy [%s] Cumulative [%s]\n" % (i,len(oneSearch),len(matchResults)))
+                    if self.getMaxResults() != -1:
+                        if len(matches) < self.getMaxResults():
+                            #sys.stderr.write("\tAdding\n")
+                            matches.append(matchProfile)
+                        elif matches[-1].Percentages[searchType] < percent:
+                            #sys.stderr.write("\tReplacing\n")
+                            matches[-1] = matchProfile
+                        else:
+                            #sys.stderr.write("\tSkipping\n")
+                            break
 
-        tempString  =   "Before Cut "
-        for typeString in GetTypes(matchResults):
-            tempString += "%s [%s] " % (typeString,CountType(matchResults,typeString))
-        tempString  +=  "Total [%s]\n" % len(matchResults)
-        sys.stderr.write(tempString)
+                        def keyFxn(value):
+                            return value.Percentages[searchType]
 
-        count           =   0
-        filteredResults =   []
-        for result in sorted(matchResults):
-            if self.getMinMatch() != -1 and result.Percent < self.getMinMatch():
-                continue
-            if self.getMaxResults() != -1 and count >= self.getMaxResults():
-                break
-            filteredResults.append(result)
-            sys.stderr.write("[%3d][%2d][%s][%32s]\n" % (result.Percent,result.Age,result.Type,result.Name))
-            count += 1
+                        matches = sorted( matches,key=keyFxn,reverse=True)
+                    else:
+                        matches.append(matchProfile)
+                        #sys.stderr.write("\tSorted - %s\n" % [ x.Percentages[searchType] for x in matches[searchType] ])
+                    saved += 1
+                sys.stderr.write("Slice [%s] Type [%s] Results [%s] Saved [%s] Cumulative [%s]\n" % (i,searchType,len(results),saved,len(matches)))
 
+            for match in matches:
+                sys.stderr.write("Saving [%s]\n" % match.Info["Name"])
 
-        tempString  =   "After Cut "
-        for typeString in GetTypes(filteredResults):
-            tempString += "%s [%s] " % (typeString,CountType(filteredResults,typeString))
-        tempString  +=  "Total [%s]\n" % len(filteredResults)
-        sys.stderr.write(tempString)
-
-        if not self.getSkipVisit():
-            for result in filteredResults:
-                matchProfile    =   MatchProfile()
-                matchProfile.loadFromSession(session,result.Name)
-    
-                for question in matchProfile.Questions:
-                    if not self.__questions.hasQuestion(question.Id):
-                        self.__questions.addQuestion(question.Id,question.Text,question.Answers)
-                self.__questions.saveQuestions()
-                fileName    =   "%s.ini" % matchProfile.Info["Name"]
+                fileName    =   "%s.ini" % match.Info["Name"]
                 fullName    =   os.path.join(self.getExperimentPath(),fileName)
- 
-                matchProfile.saveProfile(fullName)
-                if result.Type == "Enemy":
-                    self.saveEnemy(matchProfile.Info["Name"],fullName)
-                elif result.Type == "Match":
-                    self.saveMatch(matchProfile.Info["Name"],fullName) 
-                else:
-                    raise RuntimeError,"What is a [%s] match type?\n" % result.Type
-
+                    
+                match.saveProfile(fullName)
+                self.saveProfile(searchType,match.Info["Name"],fullName)
         sys.stderr.write("Finished Experiment\n")

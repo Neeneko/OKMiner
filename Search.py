@@ -123,7 +123,7 @@ class TargetedGentationFilter(GentationFilter):
 
 class MatchOrder(object):
 
-    VALID_ORDERS=["MATCH","ENEMY"]
+    VALID_ORDERS=["MATCH","ENEMY","FRIEND"]
 
     def __init__(self,order):
         if order not in MatchOrder.VALID_ORDERS:
@@ -171,7 +171,34 @@ class SearchResult(object):
     def __cmp__(self,other):
         return cmp(other.Percent,self.Percent)
 
-def doSearch(session,url,min_match):
+def doSearch(session,url):
+    pageSize    =   32
+    rv  =   []
+    
+
+    i = 0
+    time = 1
+    while True:
+        newURL = url + "&timekey=%s&count=%s&low=%s" % (time,pageSize,(1+i*pageSize))
+        if i == 0:
+            newURL += "#Search"
+
+        page = session.get(newURL)
+        time,_ = re.search('CurrentGMT = new Date\(([\d]+)\*([\d]+)\)',page.text).groups()
+
+        tree        =   html.fromstring(page.text)
+        userNames   =   tree.xpath('//div[@class="username"]/a/text()')
+        rv          +=  userNames
+        if len(userNames) != 0 and len(userNames) == pageSize:
+            i+=1
+        else:
+            break
+
+    #sys.stderr.write("[%s] Results\n" % len(rv))
+    return rv
+
+
+def doSearch2(session,url,min_match):
     pageSize    =   32
     rv  =   []
     

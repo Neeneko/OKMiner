@@ -1,12 +1,327 @@
 import optparse
 import sys
 import os
+import re
+import webbrowser
+import time
+import lxml.html.builder as E
+import lxml.etree
 
 from Experiment import MinerExperiment
-from Questions import MinerQuestions
-from Profile import MatchProfile
+from Questions import QuestionDB
+from Profile import MatchProfile,UserProfile
 
 
+class SearchData(object):
+
+    def __init__(self,name):
+        self.Name               =   name
+        self.RawNames           =   []
+        self.MatchNames         =   []   
+        self.MatchProfiles      =   []
+        self.MutualProfiles     =   []
+        self.Charts             =   {}
+        self.InfoCharts         =   {}
+
+class ReportData(object):
+
+    def __init__(self,experiment):
+        self.Experiment     =   experiment
+        self.SearchTypes    =   {}
+
+        for searchType in experiment.getSearchTypes():
+            self.SearchTypes[searchType] =   SearchData(searchType)
+
+class ReportTable(object):
+
+    def __init__(self,*args):
+        self.__labels   =   []
+        self.__cols     =   []
+
+        for arg in args:
+            self.__cols.append([])
+            self.__labels.append(arg)
+
+    def addRow(self,*args):
+        for idx in range(len(args)):
+            self.__cols[idx].append(args[idx])
+
+    def getLabels(self):
+        return self.__labels
+
+    def getRowCount(self):
+        return len(self.__cols[0])
+
+    def getRow(self,idx):
+        rv = []
+        for col in self.__cols:
+            rv.append(col[idx])
+        return rv            
+
+class ReportGraph(object):
+
+    def __init__(self):
+        self.__Data               =   {}
+
+    def setValue(self,x,value):
+        self.__Data[x]      =   value
+
+    def incValue(self,x,value):
+        if x not in self.__Data:
+            self.__Data[x]  =   0
+        self.__Data[x]      +=  value
+
+    def getValue(self,x):
+        return self.__Data.get(x,0)
+
+    def getKeys(self):
+        return self.__Data.keys()
+
+    def printStuff(self):
+        sys.stderr.write("%s\n" % str(self.__Data))
+
+class ReportManager(object):
+
+    def __init__(self):
+        self.__reportPath      =    os.path.join(os.path.dirname(sys.modules[__name__].__file__), "Reports")
+
+        if not os.path.exists(self.__reportPath):
+            sys.stderr.write("Report path does not exist, creating\n")
+            os.mkdir(self.__reportPath)
+
+    def __buildTable(self,title,table):
+        tableArgs   =   []
+        labelArgs   =   []
+        for label in table.getLabels():
+            labelArgs.append(E.TH(label))
+        tableArgs.append(E.TR(*labelArgs))
+
+        for idx in range(table.getRowCount()):
+            rowArgs =   []
+            for r in table.getRow(idx):
+                rowArgs.append(E.TD("%s" % r))
+            tableArgs.append(E.TR(*rowArgs))
+
+        return E.DIV(E.H2(title),E.TABLE(*tableArgs))
+
+    def __buildHorizontalChart(self,*args):
+        assert isinstance(args[0],basestring)
+
+        reportCharts    =   []
+
+        yValues =   []
+        xMax    =   64
+        for arg in args[1:]:
+            yValues = set(yValues) | set(arg.getKeys())
+            for key in arg.getKeys():
+                xValue  =   arg.getValue(key)
+                xMax    =   max(xMax,xValue)
+            reportCharts.append(arg)
+        xMax    =   float(64 + xMax - xMax%64)
+
+        yValues =   sorted(yValues)
+        yMin    =   yValues[0]
+        yMax    =   yValues[-1]
+
+        sys.stderr.write("================================\n")
+        for z in range(len(reportCharts)):
+            reportCharts[z].printStuff()
+        sys.stderr.write("================================\n")
+
+        chartArgs   =   [E.CLASS("hBarGraph")]
+        chartKwargs =   {"style":"height: %spx" % (30*len(yValues))}
+
+        idx = 0
+        if isinstance(yMin,int) and isinstance(yMax,int):
+            labelRange  =   range(yMin,yMax+1)
+        else:
+            labelRange  =   yValues
+
+        for y in labelRange:
+            chartArgs.append(E.LI("  %s  " % y,E.CLASS("p0"),style="width: 100%%; color: #000; bottom: %spx;" % (30*idx)))
+            for z in range(len(reportCharts)):
+                value   =   reportCharts[z].getValue(y)
+                x       =   80.0 * float(value)/float(xMax)
+                chartArgs.append(E.LI("%s" % value,E.CLASS("p%d" % (z+1)),style="width: %s%%; bottom: %spx;" % (x,30*idx)))
+            idx += 1
+        chart       =   E.UL(*chartArgs,**chartKwargs)
+
+        return E.DIV(E.H2(args[0]),chart)
+
+
+
+    def __buildVerticalChart(self,*args):
+        assert isinstance(args[0],basestring)
+
+        reportCharts    =   []
+
+        xValues =   []
+        yMax    =   64
+        for arg in args[1:]:
+            xValues = set(xValues) | set(arg.getKeys())
+            for key in arg.getKeys():
+                yValue  =   arg.getValue(key)
+                yMax    =   max(yMax,yValue)
+            reportCharts.append(arg)
+        yMax    =   float(64 + yMax - yMax%64)
+
+        xValues =   sorted(xValues)
+        xMin    =   xValues[0]
+        xMax    =   xValues[-1]
+
+        chartArgs   =   [E.CLASS("vBarGraph")]
+        xArgs       =   [E.CLASS("xAxis")]
+
+        idx = 0
+        if isinstance(xMin,int) and isinstance(xMax,int):
+            labelRange  =   range(xMin,xMax+1)
+        else:
+            labelRange  =   xValues
+
+        for x in labelRange:
+            for z in range(len(reportCharts)):
+                value   =   reportCharts[z].getValue(x)
+                y       =   200.0 * float(value)/float(yMax)
+                chartArgs.append(E.LI("%s" % value,E.CLASS("p%d" % (z+1)),style="height: %spx; left: %spx;" % (y,20*idx)))
+            xArgs.append(E.LI("%s" % x))
+            idx += 1
+        chart       =   E.UL(*chartArgs)
+        labels      =   E.UL(*xArgs)
+
+        return E.DIV(E.H2(args[0]),chart,labels)
+
+    def __buildIndexPage(self):
+        html    =   E.HTML(
+                        E.HEAD(
+                            E.LINK(rel="stylesheet", type="text/css", href="../Assets/Report.css")
+                        ),
+                        E.BODY( 
+                            E.CLASS("main"),
+                            E.DIV(
+                                E.IFRAME("",src="header.html",name="headerFrame",style="height: 100%; width: 100%;"),
+                                id="header"
+                            ),
+                            E.DIV(
+                                E.IFRAME("",src="navigation.html",name="navigationFrame",style="height: 100%; width: 100%;"),
+                                id="navigation"
+                            ),
+                            E.DIV(
+                                E.IFRAME("",src="Match.html",name="matchFrame",style="height: 100%; width: 100%;"),
+                                id="content"
+                            )
+                        )
+                    )
+        return lxml.etree.tostring(html,pretty_print=True)
+
+    def __buildHeaderPage(self,data):
+
+        html    =   E.HTML(
+                        E.HEAD( 
+                            E.STYLE("body {background-color:#eeeeee;}")
+                        ),
+                        E.BODY(
+                            E.P(
+                                "User Name : %s" % data.Experiment.getUserName(),
+                                E.BR(),
+                                "Min Match : %s%%" % data.Experiment.getMinMatch(),
+                                E.BR(),
+                                "Age Range : %s-%s" % data.Experiment.getAgeRange(),
+                            )
+                        )
+                    )
+        return lxml.etree.tostring(html,pretty_print=True)
+
+    def __buildNavigationPage(self,data):
+        html    =   E.HTML(
+                        E.HEAD( 
+                            E.STYLE("body {background-color:#eeeeee;}")
+                        ),
+                        E.BODY(
+                            E.H2("Navigation"),
+                            E.DIV(
+                                E.A("[Match]", href="Match.html",target="matchFrame")
+                            ),
+                            E.DIV(
+                                E.A("[Enemy]", href="Enemy.html",target="matchFrame")
+                            ),
+                            E.DIV(
+                                E.A("[Friend]", href="Friend.html",target="matchFrame")
+                            )
+                        )
+                    )
+        return lxml.etree.tostring(html,pretty_print=True)
+
+    def __buildSearchTypePage(self,search_data):
+        if search_data.Name == "Friend":
+            colour  =    "#C0FFC0"
+        elif search_data.Name == "Enemy":
+            colour  =    "#FFC0C0"
+        elif search_data.Name == "Match":
+            colour  =    "#C0C0FF"
+        else:
+            raise RuntimeError
+
+        bodyArgs    =   []
+        bodyArgs.append(E.H2("Result Summary"))
+        bodyArgs.append(E.P(
+                            "Results : %s" % len(search_data.RawNames),
+                            E.BR(),
+                            "Matches : %s" % len(search_data.MatchNames),
+                            E.BR(),
+                            "Mutual  : %s" % len(search_data.MutualProfiles)
+                            )
+                        )
+        bodyArgs.append(self.__buildVerticalChart("Result By Age",search_data.Charts["ResultAge"]))
+        bodyArgs.append(self.__buildVerticalChart("Matches By Age",search_data.Charts["MatchAge"],search_data.Charts["MutualAge"]))
+        #bodyArgs.append(self.__buildHorizontalChart("Ethnicity",search_data.Charts["MatchEthnicity"]))
+        #bodyArgs.append(self.__buildHorizontalChart("Ethnicity",search_data.Charts["MatchEthnicity"],search_data.Charts["MutualEthnicity"]))
+        for k,v in search_data.InfoCharts.iteritems():
+            bodyArgs.append(self.__buildHorizontalChart(k,*v))
+
+        bodyArgs.append(self.__buildTable("Questions By Priority",search_data.Charts["Answers"]))
+
+        html    =   E.HTML(
+                        E.HEAD( 
+                            E.TITLE(search_data.Name),
+                            E.LINK(rel="stylesheet", type="text/css", href="../Assets/Chart.css"),
+                            E.STYLE("body {background-color:%s;}" % colour)
+                        ),
+                        E.BODY(*bodyArgs)
+                    )
+        return lxml.etree.tostring(html,pretty_print=True)
+
+    def writeReport(self,name,data):
+        basePath    =   os.path.join(self.__reportPath,name)
+        if not os.path.exists(basePath):
+            sys.stderr.write("Output path does not exist, creating\n")
+            os.mkdir(basePath)
+        indexPage   =   self.__buildIndexPage()
+        output = open(os.path.join(basePath,"index.html"),"w")
+        output.write(indexPage)
+        output.close()
+
+        headerPage   =   self.__buildHeaderPage(data)
+        output = open(os.path.join(basePath,"header.html"),"w")
+        output.write(headerPage)
+        output.close()
+
+        navPage     =   self.__buildNavigationPage(data)
+        output = open(os.path.join(basePath,"navigation.html"),"w")
+        output.write(navPage)
+        output.close()
+
+        for k,v in data.SearchTypes.iteritems():
+            page   =   self.__buildSearchTypePage(v)
+            output = open(os.path.join(basePath,"%s.html" % k),"w")
+            output.write(page)
+            output.close()
+
+
+    def displayReport(self,name):
+        fileName    =   os.path.join(self.__reportPath,name,"index.html")
+        controller = webbrowser.get()
+        controller.open_new("file:" + os.path.abspath(fileName))
+  
 class StatContainer(object):
 
     def __init__(self,qid):
@@ -26,10 +341,68 @@ class StatContainer(object):
         sum = 0.0
         for weight in self.__weights:
             sum += weight
-        return sum
+        if sum > 0:
+            return 100.0 * sum/float(self.getCount())
+        else:
+            return 0.0
 
     def __cmp__(self,other):
         return cmp(self.getScore(),other.getScore())
+
+def ProcessAnswers(profiles):
+    aStats  =   {}
+    for questionId in QuestionDB.getQuestionIds():
+        aStats[questionId] = StatContainer(questionId)
+
+    for profile in profiles:
+        for idx in range(len(profile.Answers)):
+            aStats[profile.Answers[idx]].addWeight( float(idx)/float(len(profile.Answers)))
+    reportTable = ReportTable("Id","Count","Score","Text")
+    sortedStats = sorted(aStats.values())
+    for idx in range(128):
+        aStat = sortedStats[len(sortedStats) - idx - 1]
+        reportTable.addRow(aStat.getId(),aStat.getCount(),int(aStat.getScore()),QuestionDB.getText(aStat.getId()))
+
+    return reportTable
+
+def ProcessField(group,field,profiles):
+    rv = ReportGraph()
+    for profile in profiles:
+        groupDict   = getattr(profile,group)
+        value       = groupDict[field]
+        commaIndex  = value.find(",")
+        if commaIndex != -1:
+            value = value[:commaIndex]
+        elif len(value) == 0:
+            value = "No Answer"
+        rv.incValue(value,1)
+    return rv
+
+def BuildPage(glob,local):
+    html    =   E.HTML(
+                        E.HEAD( 
+                            E.TITLE(local["SearchType"]),
+                            E.STYLE("body {background-color:#d0e4fe;}")
+                        ),
+                        E.BODY( E.CLASS("main"),
+                            E.H2("Experiment Profile"),
+                            E.P(
+                                "User Name : %s" % glob["User"].Info["Name"],
+                                E.BR(),
+                                "Age Range : %s-%s" % (glob["AgeLow"],glob["AgeHigh"]),
+                                E.BR(),
+                                "Min Match : %s%%" % glob["Experiment"].getMinMatch(),
+                            ),
+                            E.H2("Result Summary"),
+                            E.P(
+                                "Results : %s" % local["TotalResult"],
+                                E.BR(),
+                                "Matches : %s" % local["TotalMatch"]
+                            )
+                        )
+                )
+
+    return lxml.etree.tostring(html,pretty_print=True)
 
 if __name__ == "__main__":
     usage       =   "usage: %prog [options] folder"
@@ -43,7 +416,7 @@ if __name__ == "__main__":
         sys.stderr.write("Please supply folder name\n")
         sys.exit()      
 
-    folderName = args[0]
+    folderName      =   args[0]
     maxQuestions    =   16
     minAnswers      =   16
     profileAge      =   35
@@ -51,139 +424,50 @@ if __name__ == "__main__":
 
     if not os.path.exists(folderName):
         sys.stderr.write("No such folder [%s]\n" % folderName)
-        sys.exit()      
-    questions   =   MinerQuestions()
+        sys.exit() 
+
+
     experiment  =   MinerExperiment()
     experiment.loadExperiment(folderName)
-    sys.stderr.write("Loaded Experiment for [%s], [%s] Matches\n" % (experiment.getUserName(),experiment.getMatchCount()))
-    sys.stderr.write("Total Questions [%s]\n" %  questions.getCount())
+    reportData  =   ReportData(experiment)
+    sys.stderr.write("Loaded Experiment for [%s]\n" % (experiment.getUserName()))
+    sys.stderr.write("Total Questions [%s]\n" %  QuestionDB.getCount())
 
-    matches =   []
-    for (matchName,matchFile) in experiment.getMatches():
-        if os.path.exists(matchFile):
+    userAge     =   int(experiment.getUserProfile().Info["Age"])
+    #--------------------------------------------
+    for searchType in experiment.getSearchTypes():
+        searchData                      =   reportData.SearchTypes[searchType]
+        searchData.Charts["ResultAge"]  =   ReportGraph()   
+        searchData.Charts["MatchAge"]   =   ReportGraph()   
+        searchData.Charts["MutualAge"]  =   ReportGraph()   
+        for age,searchSet in experiment.getSearches(searchType).iteritems():
+            searchData.RawNames += searchSet
+            searchData.Charts["ResultAge"].setValue(age,len(searchSet))
+            
+        for profileName,fileName in experiment.getProfiles(searchType):
+            searchData.MatchNames.append(profileName)
             matchProfile = MatchProfile()
-            matchProfile.loadFromConfig(matchFile)
-            sys.stderr.write("Loaded Match [%s] - [%d] Answers\n" % (matchProfile.Info["Name"],len(matchProfile.Answers)))
-            if len(matchProfile.Answers) < minAnswers:
+            matchProfile.loadFromConfig(fileName)
+            searchData.MatchProfiles.append(matchProfile)
+            searchData.Charts["MatchAge"].incValue(int(matchProfile.Info["Age"]),1)
+            if userAge < int(matchProfile.LookingFor["AgeLow"]):
                 continue
-            if profileAge < int(matchProfile.LookingFor["AgeLow"]):
+            if userAge > int(matchProfile.LookingFor["AgeHigh"]):
                 continue
-            if profileAge > int(matchProfile.LookingFor["AgeHigh"]):
-                continue
-            matches.append(matchProfile)
+            searchData.Charts["MutualAge"].incValue(int(matchProfile.Info["Age"]),1)
+            searchData.MutualProfiles.append(matchProfile)
+        searchData.Charts["Answers"]         = ProcessAnswers(searchData.MutualProfiles)
+        searchData.InfoCharts["Ethnicity"]  = (ProcessField("Details","Ethnicity",searchData.MatchProfiles),ProcessField("Details","Ethnicity",searchData.MutualProfiles))
 
-    if experiment.getIncludeEnemy():
-        enemies = []
-        for (matchName,matchFile) in experiment.getEnemies():
-            if os.path.exists(matchFile):
-                matchProfile = MatchProfile()
-                matchProfile.loadFromConfig(matchFile)
-                sys.stderr.write("Loaded Enemy [%s] - [%d] Answers\n" % (matchProfile.Info["Name"],len(matchProfile.Answers)))
-                if len(matchProfile.Answers) < minAnswers:
-                    continue
-                if profileAge < int(matchProfile.LookingFor["AgeLow"]):
-                    continue
-                if profileAge > int(matchProfile.LookingFor["AgeHigh"]):
-                    continue
+        searchData.InfoCharts["Relationship Type"]  = (ProcessField("Details","Relationship Type",searchData.MatchProfiles),ProcessField("Details","Relationship Type",searchData.MutualProfiles))
+        searchData.InfoCharts["Smokes"]  = (ProcessField("Details","Smokes",searchData.MatchProfiles),ProcessField("Details","Smokes",searchData.MutualProfiles))
+        searchData.InfoCharts["Religion"]  = (ProcessField("Details","Religion",searchData.MatchProfiles),ProcessField("Details","Religion",searchData.MutualProfiles))
+        searchData.InfoCharts["Gentation"]  = (ProcessField("LookingFor","Gentation",searchData.MatchProfiles),ProcessField("LookingFor","Gentation",searchData.MutualProfiles))
+        searchData.InfoCharts["Status"]  = (ProcessField("Info","Status",searchData.MatchProfiles),ProcessField("Info","Status",searchData.MutualProfiles))
 
-                enemies.append(matchProfile)
+    #--------------------------------------------
 
-    report    =   sys.stdout
-
-    def WriteHeader(note):
-        report.write("%s\n" % ("="*64))
-        report.write("%s    %-48s    %s\n" % ( ("="*4),note,("="*4)))
-        report.write("%s\n" % ("="*64))
-
-    WriteHeader("Basics")
-    report.write("Minimum Answers    [%s]\n" % minAnswers)
-    report.write("Maxiumum Questions [%s]\n" % maxQuestions)
-    if len(experiment.getMatches()) == len(matches):
-        report.write("Total Matches      [%s]\n" % len(matches))
-    else:
-        report.write("Total Matches      [%s] Filtered [%s]\n" % (len(matches),len(experiment.getMatches()) - len(matches)))
-
-    if experiment.getIncludeEnemy():
-        if len(experiment.getEnemies()) == len(enemies):
-            report.write("Total Enemies      [%s]\n" % len(enemies))
-        else:
-            report.write("Total Enemies      [%s] Filtered [%s]\n" % (len(enemies),len(experiment.getEnemies()) - len(enemies)))
-
-
-    def WriteStat(name,group,field,profiles):
-        rv = {}
-        maxValueSize    =   len(field)
-        for profile in profiles:
-            groupDict   = getattr(profile,group)
-            value       = groupDict[field]
-            commaIndex  = value.find(",")
-            if commaIndex != -1:
-                value = value[:commaIndex]
-            elif len(value) == 0:
-                value = "No Answer"
-
-            if len(value)>maxValueSize:
-                maxValueSize = len(value)
-
-            if value not in rv:
-                rv[value] = {}
-                rv[value]["Total"] = 0
-            
-            match       =   min(99,profile.Percentages[name])
-            
-            bin = match - match%10
-            if bin not in rv[value]:
-                rv[value][bin] = 0
-            rv[value][bin] += 1
-            rv[value]["Total"] += 1
-
-        headerFmt = "[%%%ss]" % maxValueSize
-        header  =   headerFmt % field
-        for i in range(10):
-            header += "[%2d%%]" % ((9-i)*10)
-        header += "[Total]\n"
-        report.write(header)
-
-        for key in sorted(rv.keys()):
-            line = headerFmt % key
-            for i in range(10):
-                bin = ((9-i)*10)
-                if bin in rv[key]:
-                    line += "[%3d]" % rv[key][bin]
-                else:
-                    line += "     "
-            if rv[key]["Total"] == 0:
-                line += "       \n"
-            else:
-                line += "[ %2d%% ]\n" % (100*(rv[key]["Total"])/len(profiles))
-
-            report.write(line)
-
-    def ProcessProfiles(name,profiles):
-        aStats  =   {}
-        for questionId in questions.getQuestionIds():
-            aStats[questionId] = StatContainer(questionId)
-
-        for profile in profiles:
-            for idx in range(len(profile.Answers)):
-                aStats[profile.Answers[idx]].addWeight( float(idx)/float(len(profile.Answers)))
-        WriteHeader("%s - Answers" % name)
-        sortedStats = sorted(aStats.values())
-        for idx in range(options.number):
-            aStat = sortedStats[len(sortedStats) - idx - 1]
-            report.write("Question [%6d] Count [%4d] Weight [%4.2f] - %s\n" % (aStat.getId(),aStat.getCount(),aStat.getScore(),questions.getText(aStat.getId())))
-
-        
-        WriteStat(name,"Info","Age",profiles)
-        WriteStat(name,"Info","Orientation",profiles)
-        WriteStat(name,"Info","Location",profiles)
-        WriteStat(name,"Details","Relationship Type",profiles)
-        WriteStat(name,"Details","Smokes",profiles)
-        WriteStat(name,"Details","Religion",profiles)
-        WriteStat(name,"Details","Ethnicity",profiles)
-        WriteStat(name,"LookingFor","Gentation",profiles)
-
-    ProcessProfiles("Match",matches)
-    if experiment.getIncludeEnemy():
-        ProcessProfiles("Enemy",enemies)
-    WriteHeader("Done")
+    reportName      =   os.path.basename(args[0])
+    reportManager   =   ReportManager()
+    reportManager.writeReport(reportName,reportData)
+    reportManager.displayReport(reportName)

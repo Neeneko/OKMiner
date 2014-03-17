@@ -7,10 +7,9 @@ import optparse
 import ConfigParser
 from Profile import UserProfile
 from ProfileManager import ProfileManager
-from Questions import MinerQuestions
+from Questions import QuestionDB
 
 class SetManager(object):
-
 
     def __init__(self):
         self.__setPath      =    os.path.join(os.path.dirname(sys.modules[__name__].__file__), "Sets")
@@ -18,8 +17,6 @@ class SetManager(object):
         if not os.path.exists(self.__setPath):
             sys.stderr.write("Data path does not exist, creating\n")
             os.mkdir(self.__setPath)
-        self.__questions    =    MinerQuestions()
-
 
     def saveSet(self,set_name,answers):
         config       =   ConfigParser.ConfigParser()
@@ -59,12 +56,13 @@ class SetManager(object):
             setNames.append(os.path.basename(root))
         return setNames
 
-    def printSet(self,answer_set):
-        sys.stderr.write("Set Contains %d of %d Questions\n" % (len(answer_set),len(self.__questions.getQuestionIds())))
+    @staticmethod
+    def printSet(answer_set):
+        sys.stderr.write("Set Contains %d of %d Questions\n" % (len(answer_set),len(QuestionDB.getQuestionIds())))
         for questionId,answer in answer_set.iteritems():
-            text    =   self.__questions.getText(questionId)
+            text    =   QuestionDB.getText(questionId)
             sys.stderr.write("[%8d] Question:   %s\n" % (questionId,text))
-            Answers = self.__questions.getAnswers(questionId)
+            Answers = QuestionDB.getAnswers(questionId)
             for idx in range(len(Answers)):
                 if idx+1 == answer.Selected:
                     selected = "[X]"

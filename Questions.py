@@ -2,47 +2,69 @@ import ConfigParser
 import sys
 import os
 
-class MinerQuestions(object):
+class QuestionConfig(object):
 
     def __init__(self):
-        self.__dataPath     =   os.path.join(os.path.dirname(sys.modules[__name__].__file__), "Data")
-        self.__dataName     =   os.path.join(self.__dataPath,"questions.ini")
-        self.__config       =   ConfigParser.ConfigParser()
-        self.__config.optionxform=str
-        if not os.path.exists(self.__dataPath):
+        self.dataPath     =   os.path.join(os.path.dirname(sys.modules[__name__].__file__), "Data")
+        self.dataName     =   os.path.join(self.dataPath,"questions.ini")
+        self.config       =   ConfigParser.ConfigParser()
+        self.config.optionxform=str
+        if not os.path.exists(self.dataPath):
             sys.stderr.write("Data path does not exist, creating\n")
-            os.mkdir(self.__dataPath)
+            os.mkdir(self.dataPath)
 
-        if os.path.exists(self.__dataName):
-            self.__config.read(self.__dataName)
+        sys.stderr.write("Loading Questions [%s]\n" % self.dataName)
+        if os.path.exists(self.dataName):
+            self.config.read(self.dataName)
 
     def saveQuestions(self):
-       with open(self.__dataName,'wb') as configFile:
-            self.__config.write(configFile)
+       with open(self.dataName,'wb') as configFile:
+            self.config.write(configFile)
 
-    def hasQuestion(self,question_id):
-        return self.__config.has_section("%s" % question_id)
 
-    def addQuestion(self,question_id,text,answers):
-        self.__config.add_section("%s" % question_id)
-        self.__config.set("%s" % question_id,"Text",text.encode('ascii','ignore'))
+
+GLOBAL_QUESTION_CONFIG  =   None
+
+def getConfig():
+    global GLOBAL_QUESTION_CONFIG
+    if GLOBAL_QUESTION_CONFIG is None:
+        GLOBAL_QUESTION_CONFIG = QuestionConfig()
+    return GLOBAL_QUESTION_CONFIG
+
+class QuestionDB(object):
+
+    @staticmethod
+    def hasQuestion(question_id):
+        return getConfig().config.has_section("%s" % question_id)
+
+    @staticmethod
+    def addQuestion(question_id,text,answers):
+        getConfig().config.add_section("%s" % question_id)
+        getConfig().config.set("%s" % question_id,"Text",text.encode('ascii','ignore'))
         for idx in range(len(answers)):
-            self.__config.set("%s" % (question_id),"Answer_%d" % (idx+1),answers[idx].encode('ascii','ignore'))
+            getConfig().config.set("%s" % (question_id),"Answer_%d" % (idx+1),answers[idx].encode('ascii','ignore'))
+        getConfig().saveQuestions()
 
-    def getCount(self):
-        return len(self.__config.sections())
+    @staticmethod
+    def getCount():
+        return len(getConfig().config.sections())
 
-    def getQuestionIds(self):
-        return [int(x) for x in self.__config.sections()]
+    @staticmethod
+    def getQuestionIds():
+        return [int(x) for x in getConfig().config.sections()]
 
-    def getText(self,question_id):
-        return self.__config.get("%s" % question_id,"Text")
+    @staticmethod
+    def getText(question_id):
+        return getConfig().config.get("%s" % question_id,"Text")
 
-    def getAnswers(self,question_id):
+    @staticmethod
+    def getAnswers(question_id):
         rv = []
         for i in range(8):
             qid = "%s" % (question_id)
             key = "Answer_%d" % (i+1)
-            if self.__config.has_option(qid,key):
-                rv.append( self.__config.get(qid,key))
+            if getConfig().config.has_option(qid,key):
+                rv.append( getConfig().config.get(qid,key))
         return rv
+
+

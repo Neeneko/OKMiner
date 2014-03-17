@@ -3,13 +3,12 @@ import sys
 import ConfigParser
 import optparse
 import time
-#from Login import doConnectWithoutLogin
-#from Session import MinerSession
-from ProfileManager import ProfileManager
+import urllib
 from StringIO import StringIO
 from lxml import html
-import urllib
 
+from ProfileManager import ProfileManager
+from Questions import QuestionDB
 #-------------------------------------------------------------------------------
 """
 import logging
@@ -39,8 +38,6 @@ class AbstractProfile(object):
         self.Details                =   {}
         self.LookingFor             =   {}
         self.Essays                 =   []
-
-
 
     def loadFromSession(self,session,user_name):
         page                        =   session.get('https://www.okcupid.com/profile/%s' % user_name)
@@ -168,13 +165,11 @@ class UserProfile(AbstractProfile):
     def __init__(self):
         AbstractProfile.__init__(self)
         self.Answers    =   {}
-        self.Questions  =   []
         self.TargetId   =   None
 
     def loadFromSession(self,session,user_name):
         AbstractProfile.loadFromSession(self,session,user_name)
         self.Answers    =   {}
-        self.Questions  =   []
         link = 'http://www.okcupid.com/profile/%s/questions' % user_name
         while True:
             nextLink = self.__fillFromLink(link,session)
@@ -322,14 +317,13 @@ class UserProfile(AbstractProfile):
         for questionId in questionIds:
             #sys.stderr.write("QuestionId [%d]\n" % questionId)
             #----------------------------------------------------------------------------
-            question            =   AbstractProfile.Question(questionId)
-            try:
-                question.Text       =   tree.xpath('//div[@id="qtext_%d"]/p/text()' % questionId)[0].encode('ascii','ignore').strip() 
-                answers             =   tree.xpath('//ul[@id="self_answers_%s"]/li/text()' % questionId)
-                question.Answers    =   answers
-                self.Questions.append(question)
-            except:
-                continue
+            if not QuestionDB.hasQuestion(questionId):
+                try:
+                    text    =   tree.xpath('//div[@id="qtext_%d"]/p/text()' % questionId)[0].encode('ascii','ignore').strip() 
+                    answers =   tree.xpath('//ul[@id="self_answers_%s"]/li/text()' % questionId)
+                    QuestionDB.addQuestion(questionId,text,answers)
+                except:
+                    continue
             #----------------------------------------------------------------------------
             answer      =   UserProfile.UserAnswer(questionId)
             selected = tree.xpath('//form[@name="answer_%s"]/div/input[@name="my_answer"]' % questionId)
@@ -365,27 +359,29 @@ class UserProfile(AbstractProfile):
         config.add_section("Answers")
         for k,v in self.Answers.iteritems():
             config.set("Answers","%s" % k,"%s,%s,%s" % (v.Selected,v.Accepted,v.Importance))
-
+    """
     def printAnswers(self):
-        sys.stderr.write("[%d] Total Questiosn\n" % len(self.Questions))
-        for question in self.Questions:
-            if question.Id not in self.Answers:
+        sys.stderr.write("[%d] Total Questiosn\n" % len(QuestionDB.getQuestionIds()))
+        for questionId in QuestionDB.getQuestionIds():
+            if questionId not in self.Answers:
                 continue
-            sys.stderr.write("[%8d] Question:   %s\n" % (question.Id,question.Text))
-            for idx in range(len(question.Answers)):
-                if idx+1 == self.Answers[question.Id].Selected:
+            text        =   QuestionDB.getText(questionId)
+            answers     =   QuestionDB.getAnswers(questionId)
+            sys.stderr.write("[%8d] Question:   %s\n" % (questionId,text))
+            for idx in range(len(answers)):
+                if idx+1 == self.Answers[questionId].Selected:
                     selected = "[X]"
                 else:
                     selected = "[ ]"
 
-                if (1 << idx+1) & self.Answers[question.Id].Accepted:
+                if (1 << idx+1) & self.Answers[questionId].Accepted:
                     accepted = "[X]"
                 else:
                     accepted = "[ ]"
 
-                sys.stderr.write("[%8d]\t%s%s %s\n" % (question.Id,selected,accepted,question.Answers[idx]))
-            sys.stderr.write("[%8d]\tImportance: %s\n" % (question.Id,self.Answers[question.Id].Importance))
-
+                sys.stderr.write("[%8d]\t%s%s %s\n" % (questionId,selected,accepted,answers[idx]))
+            sys.stderr.write("[%8d]\tImportance: %s\n" % (questionId,self.Answers[questionId].Importance))
+    """
     def doAnsewr(self,question_id,selected,acceptable,importance,session):
         sys.stderr.write("Answering Question [%s]\n" % question_id)
 
@@ -394,7 +390,6 @@ class MatchProfile(AbstractProfile):
 
     def __init__(self):
         AbstractProfile.__init__(self)
-        self.Questions      =   []
         self.Answers        =   []
         self.Percentages    =   {}
 
@@ -408,7 +403,6 @@ class MatchProfile(AbstractProfile):
             assert len(percentage.values()) == 1
             idx = percentage.text.find('%')
             self.Percentages[percentage.values()[0].capitalize()] = int(percentage.text[:idx])
-
         link = 'http://www.okcupid.com/profile/%s/questions?she_care=1' % user_name
         while True:
             nextLink = self.__fillFromLink(link,session)
@@ -425,7 +419,6 @@ class MatchProfile(AbstractProfile):
         for k,v in self.Percentages.iteritems():
             config.set("Percentages",k,"%d" % v)
 
-
     def drainConfig(self,config):
         AbstractProfile.drainConfig(self,config)
         keys = sorted(config.options("Answers"))
@@ -435,7 +428,7 @@ class MatchProfile(AbstractProfile):
             self.Percentages[k] = int(v)
 
     def __fillFromLink(self,link,session):
-        sys.stderr.write("Filling From [%s]\n" % link)
+        #sys.stderr.write("Filling From [%s]\n" % link)
         page = session.get(link)
         tree            =   html.fromstring(page.text)
         questionIds     =   []
@@ -452,12 +445,11 @@ class MatchProfile(AbstractProfile):
         for questionId in questionIds:
             #sys.stderr.write("QuestionId [%d]\n" % questionId)
             #----------------------------------------------------------------------------
-            question            =   AbstractProfile.Question(questionId)
-            question.Text       =   tree.xpath('//div[@id="qtext_%d"]/p/text()' % questionId)[0].encode('ascii','ignore').strip() 
+            if not QuestionDB.hasQuestion(questionId):
+                text    =   tree.xpath('//div[@id="qtext_%d"]/p/text()' % questionId)[0].encode('ascii','ignore').strip() 
 
-            answers = tree.xpath('//form[@name="answer_%s"]/div/label[@class="radio"]/text()' % questionId)
-            question.Answers    =   answers
-            self.Questions.append(question)
+                answers = tree.xpath('//form[@name="answer_%s"]/div/label[@class="radio"]/text()' % questionId)
+                QuestionDB.addQuestion(questionId,text,answers)
             #----------------------------------------------------------------------------
             self.Answers.append(questionId)
             #----------------------------------------------------------------------------
@@ -466,7 +458,7 @@ class MatchProfile(AbstractProfile):
             return nextLink[0]
         else:
             return None
-
+    """
     def printAnswers(self):
         sys.stderr.write("[%d] Total Questiosn\n" % len(self.Questions))
         for question in self.Questions:
@@ -475,8 +467,7 @@ class MatchProfile(AbstractProfile):
             sys.stderr.write("[%8d] Question:   %s\n" % (question.Id,question.Text))
             for idx in range(len(question.Answers)):
                 sys.stderr.write("[%8d]\t%s\n" % (question.Id,question.Answers[idx]))
-
-
+    """
 
 if __name__ == "__main__":
     usage = "usage: %prog [options] username matchname"
@@ -503,5 +494,4 @@ if __name__ == "__main__":
 
     profile.loadFromSession(session,matchName)
     sys.stderr.write(profile.saveToString())
-    #profile.printAnswers()
 
