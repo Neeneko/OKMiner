@@ -48,6 +48,11 @@ class AbstractProfile(object):
         self.Info["Orientation"]    =   tree.xpath('//span[@id="ajax_orientation"]/text()')[0]
         self.Info["Status"]         =   tree.xpath('//span[@id="ajax_status"]/text()')[0]
         self.Info["Location"]       =   tree.xpath('//span[@id="ajax_location"]/text()')[0]
+        thumb0                      =   tree.xpath('//div[@id="thumb0"]/img/@src')
+        if len(thumb0) == 1 and 'placeholder' in thumb0[0]:
+            self.Info["HasPicture"] =   "False"
+        else:
+            self.Info["HasPicture"] =   "True"
 
         labelList   =   tree.xpath('//div/dl/dt/text()')
         infoList    =   tree.xpath('//div/dl/dd/text()')

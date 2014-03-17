@@ -18,7 +18,6 @@ class   MinerExperiment(object):
                         "AgeRange"      : "10",
                         "AgeMin"        : None,
                         "AgeMax"        : None,
-                        "Orientation"   : None,
                         "SkipVisit"     : False,
                         "IncludeEnemy"  : False,
                         "SearchTypes"   : "Match",
@@ -139,6 +138,15 @@ class   MinerExperiment(object):
 
         return (ageLow,ageHigh)
 
+    def getGentation(self):
+        gentation = self.__config.get("Settings","Gentation") 
+        if gentation is not None and gentation != "None":
+            return gentation
+        else:
+            gender      =   self.__userProfile.Info["Gender"]
+            orientation =   self.__userProfile.Info["Orientation"]
+            return GentationFilter.genGentation(gender,orientation)
+
     def getUserName(self):
         return self.__config.get("Settings","UserName")
 
@@ -178,12 +186,8 @@ class   MinerExperiment(object):
         self.__userProfile.saveProfile(fullName)
         self.saveProfile("User",self.__userProfile.Info["Name"],fullName)
 
-        if self.__config.get("Settings","Orientation") is not None:
-            orientation = self.__config.get("Settings","Orientation") 
-        else:
-            orientation = self.__userProfile.Info["Orientation"]
-
         gender          = self.__userProfile.Info["Gender"]
+        orientation     = self.__userProfile.Info["Orientation"]
         radius          = self.__config.get("Settings","Radius")
         locationId      = getLocationId(session,self.__userProfile.Info["Location"])
         baseAge         = int(self.__userProfile.Info["Age"])
@@ -222,7 +226,7 @@ class   MinerExperiment(object):
             matches = []
             for i in range(ageLow,ageHigh+1):
                 gc.collect()
-                url = genSearchURL(MatchOrder(searchType.upper()),AgeFilter(i,i),LastOnFilter(LastOnFilter.WEEK),LocationIdFilter(locationId,radius),TargetedGentationFilter(gender,orientation))
+                url = genSearchURL(MatchOrder(searchType.upper()),AgeFilter(i,i),LastOnFilter(LastOnFilter.WEEK),LocationIdFilter(locationId,radius),GentationFilter(self.getGentation()),PhotoFilter(False),StatusFilter(StatusFilter.ANY))
                 sys.stderr.write("[%s][%s] Search [%s]\n" % (searchType,i,url))
                 results         =   doSearch(session,url)
                 self.saveSearch(searchType,i,results)

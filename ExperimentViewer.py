@@ -123,10 +123,10 @@ class ReportManager(object):
         yMin    =   yValues[0]
         yMax    =   yValues[-1]
 
-        sys.stderr.write("================================\n")
-        for z in range(len(reportCharts)):
-            reportCharts[z].printStuff()
-        sys.stderr.write("================================\n")
+        #sys.stderr.write("================================\n")
+        #for z in range(len(reportCharts)):
+        #    reportCharts[z].printStuff()
+        #sys.stderr.write("================================\n")
 
         chartArgs   =   [E.CLASS("hBarGraph")]
         chartKwargs =   {"style":"height: %spx" % (30*len(yValues))}
@@ -226,6 +226,8 @@ class ReportManager(object):
                                 "Min Match : %s%%" % data.Experiment.getMinMatch(),
                                 E.BR(),
                                 "Age Range : %s-%s" % data.Experiment.getAgeRange(),
+                                E.BR(),
+                                "Gentation : %s" % data.Experiment.getGentation()
                             )
                         )
                     )
@@ -341,10 +343,11 @@ class StatContainer(object):
         sum = 0.0
         for weight in self.__weights:
             sum += weight
-        if sum > 0:
-            return 100.0 * sum/float(self.getCount())
-        else:
-            return 0.0
+        return sum
+        #if sum > 0:
+        #    return 100.0 * sum/float(self.getCount())
+        #else:
+        #    return 0.0
 
     def __cmp__(self,other):
         return cmp(self.getScore(),other.getScore())
@@ -462,9 +465,14 @@ if __name__ == "__main__":
         searchData.InfoCharts["Relationship Type"]  = (ProcessField("Details","Relationship Type",searchData.MatchProfiles),ProcessField("Details","Relationship Type",searchData.MutualProfiles))
         searchData.InfoCharts["Smokes"]  = (ProcessField("Details","Smokes",searchData.MatchProfiles),ProcessField("Details","Smokes",searchData.MutualProfiles))
         searchData.InfoCharts["Religion"]  = (ProcessField("Details","Religion",searchData.MatchProfiles),ProcessField("Details","Religion",searchData.MutualProfiles))
-        searchData.InfoCharts["Gentation"]  = (ProcessField("LookingFor","Gentation",searchData.MatchProfiles),ProcessField("LookingFor","Gentation",searchData.MutualProfiles))
         searchData.InfoCharts["Status"]  = (ProcessField("Info","Status",searchData.MatchProfiles),ProcessField("Info","Status",searchData.MutualProfiles))
-
+        searchData.InfoCharts["Orientation"]  = (ProcessField("Info","Orientation",searchData.MatchProfiles),ProcessField("Info","Orientation",searchData.MutualProfiles))
+        searchData.InfoCharts["Picture"]  = (ProcessField("Info","HasPicture",searchData.MatchProfiles),ProcessField("Info","HasPicture",searchData.MutualProfiles))
+        searchData.InfoCharts["Sign"]  = (ProcessField("Details","Sign",searchData.MatchProfiles),ProcessField("Details","Sign",searchData.MutualProfiles))
+        searchData.InfoCharts["Looking For - Status"]  = (ProcessField("LookingFor","Single",searchData.MatchProfiles),ProcessField("LookingFor","Single",searchData.MutualProfiles))
+        searchData.InfoCharts["Looking For - Gentation"]  = (ProcessField("LookingFor","Gentation",searchData.MatchProfiles),ProcessField("LookingFor","Gentation",searchData.MutualProfiles))
+        searchData.InfoCharts["Looking For - Near"]  = (ProcessField("LookingFor","Near",searchData.MatchProfiles),ProcessField("LookingFor","Near",searchData.MutualProfiles))
+ 
     #--------------------------------------------
 
     reportName      =   os.path.basename(args[0])

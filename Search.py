@@ -13,6 +13,28 @@ class SearchFilter(object):
     def genFilter(self):
         raise NotImplementedError
 
+class PhotoFilter(SearchFilter):
+
+    def __init__(self,required):
+        self.__required =   required
+
+    def genFilter(self):
+        if self.__required:
+            return "1,1"
+        else:
+            return "1,0"
+
+class StatusFilter(SearchFilter):
+
+    ANY         =   0
+    SINGLE      =   2
+    NOT_SINGLE  =   60
+
+    def __init__(self,status):
+        self.__status   =   status
+
+    def genFilter(self):
+        return "35,%s" % self.__status
 
 class AgeFilter(SearchFilter):
 
@@ -79,6 +101,8 @@ class GentationFilter(SearchFilter):
                     "gay guys only"         :   4,
                     "bi girls only"         :   32,
                     "bi guys only"          :   16,
+                    "girls"                 :   34|8,
+                    "guys"                  :   17|4,
                     "everybody"             :   63
                 }
 
@@ -87,17 +111,11 @@ class GentationFilter(SearchFilter):
             raise RuntimeError,"Invalid Gentation Option [%s]" % value
         self.__value = value
 
-    def genFilter(self):
-        return "0,%d" % GentationFilter.CONSTANTS[self.__value]
+    @staticmethod
+    def genGentation(gender,orientation):
+        VALID_GENDERS       =   ["M","F"]
+        VALID_ORIENTATIONS  =   ["Strait","Bisexual","Gay"]
 
-
-class TargetedGentationFilter(GentationFilter):
-
-
-    VALID_GENDERS       =   ["M","F"]
-    VALID_ORIENTATIONS  =   ["Strait","Bisexual","Gay"]
-
-    def __init__(self,gender,orientation):
         if gender == "M":
             if orientation == "Strait":
                 gentation   =   "girls who like guys"
@@ -118,8 +136,10 @@ class TargetedGentationFilter(GentationFilter):
                 raise RuntimeError,"Invalid Orientation [%s]" % orientation
         else:
             raise RuntimeError,"Invalid Gender [%s]" % gender
+        return gentation
 
-        super(TargetedGentationFilter,self).__init__(gentation)
+    def genFilter(self):
+        return "0,%d" % GentationFilter.CONSTANTS[self.__value]
 
 class MatchOrder(object):
 
@@ -189,7 +209,7 @@ def doSearch(session,url):
         tree        =   html.fromstring(page.text)
         userNames   =   tree.xpath('//div[@class="username"]/a/text()')
         rv          +=  userNames
-        if len(userNames) != 0 and len(userNames) == pageSize:
+        if len(userNames) != 0:
             i+=1
         else:
             break
