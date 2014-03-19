@@ -21,10 +21,16 @@
     text-align: center;
     width: 19px;
     }
-
+/*
 .vBarGraph li.p1{ background-color:#666666 }
 .vBarGraph li.p2{ background-color:#888888 }
 .vBarGraph li.p3{ background-color:#AAAAAA }
+*/
+.vBarGraph li.p1{ background-color:Red }
+.vBarGraph li.p2{ background-color:Blue }
+.vBarGraph li.p3{ background-color:Green }
+
+
 
 ul.xAxis{margin:0 0 0 0px;padding:0;float:left;clear:left;display:inline;}
 ul.xAxis li{
@@ -63,9 +69,18 @@ ul.xAxis li{
 }
 
 .hBarGraph li.p0{ background-color:transparent }
-.hBarGraph li.p1{ background-color:#666666 }
-.hBarGraph li.p2{ background-color:#888888 }
-.hBarGraph li.p3{ background-color:#AAAAAA }
+
+/*
+.hBarGraph li.p1{ background-color:#444444 }
+.hBarGraph li.p2{ background-color:#666666 }
+.hBarGraph li.p3{ background-color:#888888 }
+.hBarGraph li.p4{ background-color:#AAAAAA }
+*/
+
+.hBarGraph li.p1{ background-color:Red }
+.hBarGraph li.p2{ background-color:Blue }
+.hBarGraph li.p3{ background-color:Green }
+.hBarGraph li.p4{ background-color:Yellow }
 
 }
 

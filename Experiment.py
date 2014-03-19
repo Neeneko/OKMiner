@@ -18,8 +18,6 @@ class   MinerExperiment(object):
                         "AgeRange"      : "10",
                         "AgeMin"        : None,
                         "AgeMax"        : None,
-                        "SkipVisit"     : False,
-                        "IncludeEnemy"  : False,
                         "SearchTypes"   : "Match",
                         "Gentation"     : None
                     }
@@ -37,9 +35,6 @@ class   MinerExperiment(object):
             os.mkdir(self.__dataPath)
         self.__userProfile  =   UserProfile()
 
-    def getSkipVisit(self):
-        return bool(self.__config.get("Settings","SkipVisit"))
-
     def getGentation(self):
         return self.__config.get("Settings","Gentation")
 
@@ -53,13 +48,6 @@ class   MinerExperiment(object):
     def getMinMatch(self):
         try:
             rv = int(self.__config.get("Settings","MinMatch"))
-        except:
-            rv = -1
-        return rv
-
-    def getIncludeEnemy(self):
-        try:
-            rv = bool(self.__config.get("Settings","IncludeEnemy"))
         except:
             rv = -1
         return rv
@@ -143,6 +131,7 @@ class   MinerExperiment(object):
         if gentation is not None and gentation != "None":
             return gentation
         else:
+            raise RuntimeError,"No Longer Supported, must define Gentation"
             gender      =   self.__userProfile.Info["Gender"]
             orientation =   self.__userProfile.Info["Orientation"]
             return GentationFilter.genGentation(gender,orientation)
@@ -180,14 +169,12 @@ class   MinerExperiment(object):
         session         =   profileManager.doLogin(self.getUserName())
 
 
-        self.__userProfile.loadFromSession(session,self.getUserName())
+        self.__userProfile.loadFromSession(session,self.getUserName(),True)
         fileName        =   "%s.ini" %  self.__userProfile.Info["Name"] 
         fullName        =   os.path.join(self.getExperimentPath(),fileName)
         self.__userProfile.saveProfile(fullName)
         self.saveProfile("User",self.__userProfile.Info["Name"],fullName)
 
-        gender          = self.__userProfile.Info["Gender"]
-        orientation     = self.__userProfile.Info["Orientation"]
         radius          = self.__config.get("Settings","Radius")
         locationId      = getLocationId(session,self.__userProfile.Info["Location"])
         baseAge         = int(self.__userProfile.Info["Age"])
@@ -234,7 +221,10 @@ class   MinerExperiment(object):
                 for result in results:
                     sys.stderr.write("[%s][%s] Loading [%s]\n" % (searchType,i,result))
                     matchProfile    =   MatchProfile()
-                    matchProfile.loadFromSession(session,result)
+                    if not matchProfile.loadFromSession(session,result):
+                        self.saveProfile("Error",result,"%s" % str(matchProfile.Error))
+                        continue
+                        
 
                     sys.stderr.write("[%s][%s] Answers [%s]\n" % (searchType,i,len(matchProfile.Answers)))
                     percent = matchProfile.Percentages[searchType]

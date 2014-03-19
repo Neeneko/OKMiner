@@ -143,7 +143,7 @@ class GentationFilter(SearchFilter):
 
 class MatchOrder(object):
 
-    VALID_ORDERS=["MATCH","ENEMY","FRIEND"]
+    VALID_ORDERS=["MATCH","ENEMY"]
 
     def __init__(self,order):
         if order not in MatchOrder.VALID_ORDERS:

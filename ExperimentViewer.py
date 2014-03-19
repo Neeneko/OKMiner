@@ -60,8 +60,9 @@ class ReportTable(object):
 
 class ReportGraph(object):
 
-    def __init__(self):
-        self.__Data               =   {}
+    def __init__(self,stacked=False):
+        self.__Data             =   {}
+        self.__Stacked          =   stacked
 
     def setValue(self,x,value):
         self.__Data[x]      =   value
@@ -76,6 +77,9 @@ class ReportGraph(object):
 
     def getKeys(self):
         return self.__Data.keys()
+
+    def isStacked(self):
+        return self.__Stacked
 
     def printStuff(self):
         sys.stderr.write("%s\n" % str(self.__Data))
@@ -104,44 +108,71 @@ class ReportManager(object):
 
         return E.DIV(E.H2(title),E.TABLE(*tableArgs))
 
+    def __nextPowerOfTwo(self,value):
+        rv = 16
+        while True:
+            if value < rv:
+                return rv
+            if rv >= 256:
+                rv += 64
+            elif rv >= 128:
+                rv += 32
+            else:
+                rv += 16
+
     def __buildHorizontalChart(self,*args):
         assert isinstance(args[0],basestring)
-
+        sys.stderr.write("Building hchart for [%s]\n" % args[0])
         reportCharts    =   []
 
         yValues =   []
-        xMax    =   64
+        xMax    =   2
         for arg in args[1:]:
-            yValues = set(yValues) | set(arg.getKeys())
-            for key in arg.getKeys():
-                xValue  =   arg.getValue(key)
-                xMax    =   max(xMax,xValue)
             reportCharts.append(arg)
-        xMax    =   float(64 + xMax - xMax%64)
 
-        yValues =   sorted(yValues)
+        for z in range(len(reportCharts)):
+            yValues = set(yValues) | set(reportCharts[z].getKeys())
+            for key in reportCharts[z].getKeys():
+                xValue  =   reportCharts[z].getValue(key)
+                if reportCharts[z].isStacked():
+                    for zz in reportCharts[z:]:
+                        xValue += zz.getValue(key)
+                xMax    =   max(xMax,xValue)
+        xMax    =   self.__nextPowerOfTwo(xMax)
+
+        if len(yValues) == 0:
+            return E.DIV(E.H2(args[0]),E.SPAN("No Data"))
+
+        yValues =   sorted(yValues,reverse=True)
         yMin    =   yValues[0]
         yMax    =   yValues[-1]
 
-        #sys.stderr.write("================================\n")
-        #for z in range(len(reportCharts)):
-        #    reportCharts[z].printStuff()
-        #sys.stderr.write("================================\n")
-
         chartArgs   =   [E.CLASS("hBarGraph")]
-        chartKwargs =   {"style":"height: %spx" % (30*len(yValues))}
+        chartKwargs =   {"style":"height: %spx" % ((30*len(yValues)))}
 
         idx = 0
-        if isinstance(yMin,int) and isinstance(yMax,int):
-            labelRange  =   range(yMin,yMax+1)
-        else:
-            labelRange  =   yValues
+        #if isinstance(yMin,int) and isinstance(yMax,int):
+        #    labelRange  =   range(yMin,yMax+1)
+        #else:
+        labelRange  =   yValues
 
         for y in labelRange:
             chartArgs.append(E.LI("  %s  " % y,E.CLASS("p0"),style="width: 100%%; color: #000; bottom: %spx;" % (30*idx)))
             for z in range(len(reportCharts)):
                 value   =   reportCharts[z].getValue(y)
-                x       =   80.0 * float(value)/float(xMax)
+                if value == 0:
+                    x       =   0
+                    value   =   ""
+
+                elif reportCharts[z].isStacked():
+                   
+                    vSum  =   value
+                    for zz in reportCharts[(z+1):]:
+                        vSum += zz.getValue(y)
+                    #sys.stderr.write("[%s] Index [%s] value [%s] vSum [%s]\n" % (y,z,value,vSum))
+                    x       =   80.0 * float(vSum)/float(xMax)
+                else:
+                    x       =   80.0 * float(value)/float(xMax)
                 chartArgs.append(E.LI("%s" % value,E.CLASS("p%d" % (z+1)),style="width: %s%%; bottom: %spx;" % (x,30*idx)))
             idx += 1
         chart       =   E.UL(*chartArgs,**chartKwargs)
@@ -156,14 +187,14 @@ class ReportManager(object):
         reportCharts    =   []
 
         xValues =   []
-        yMax    =   64
+        yMax    =   2
         for arg in args[1:]:
             xValues = set(xValues) | set(arg.getKeys())
             for key in arg.getKeys():
                 yValue  =   arg.getValue(key)
                 yMax    =   max(yMax,yValue)
             reportCharts.append(arg)
-        yMax    =   float(64 + yMax - yMax%64)
+        yMax    =   self.__nextPowerOfTwo(yMax)
 
         xValues =   sorted(xValues)
         xMin    =   xValues[0]
@@ -190,7 +221,13 @@ class ReportManager(object):
 
         return E.DIV(E.H2(args[0]),chart,labels)
 
-    def __buildIndexPage(self):
+    def __buildIndexPage(self,data):
+
+        if "Match" in data.SearchTypes.keys():
+            defaultMatchPage = "Match.html"
+        else:
+            defaultMatchPage = "%s.html" % data.SearchTypes.keys()[0]
+
         html    =   E.HTML(
                         E.HEAD(
                             E.LINK(rel="stylesheet", type="text/css", href="../Assets/Report.css")
@@ -206,7 +243,7 @@ class ReportManager(object):
                                 id="navigation"
                             ),
                             E.DIV(
-                                E.IFRAME("",src="Match.html",name="matchFrame",style="height: 100%; width: 100%;"),
+                                E.IFRAME("",src=defaultMatchPage,name="matchFrame",style="height: 100%; width: 100%;"),
                                 id="content"
                             )
                         )
@@ -234,32 +271,23 @@ class ReportManager(object):
         return lxml.etree.tostring(html,pretty_print=True)
 
     def __buildNavigationPage(self,data):
+        
+        bodyArgs    =   [E.H2("Navigation")]
+        for k in data.SearchTypes.keys():
+            bodyArgs.append(E.DIV(E.A("[%s]" % k, href="%s.html" % k,target="matchFrame")))
+ 
+
         html    =   E.HTML(
-                        E.HEAD( 
-                            E.STYLE("body {background-color:#eeeeee;}")
-                        ),
-                        E.BODY(
-                            E.H2("Navigation"),
-                            E.DIV(
-                                E.A("[Match]", href="Match.html",target="matchFrame")
-                            ),
-                            E.DIV(
-                                E.A("[Enemy]", href="Enemy.html",target="matchFrame")
-                            ),
-                            E.DIV(
-                                E.A("[Friend]", href="Friend.html",target="matchFrame")
-                            )
-                        )
+                        E.HEAD(E.STYLE("body {background-color:#eeeeee;}")),
+                        E.BODY(*bodyArgs)
                     )
         return lxml.etree.tostring(html,pretty_print=True)
 
     def __buildSearchTypePage(self,search_data):
-        if search_data.Name == "Friend":
-            colour  =    "#C0FFC0"
-        elif search_data.Name == "Enemy":
+        if search_data.Name == "Enemy":
             colour  =    "#FFC0C0"
         elif search_data.Name == "Match":
-            colour  =    "#C0C0FF"
+            colour  =    "#C0FFC0"
         else:
             raise RuntimeError
 
@@ -275,9 +303,8 @@ class ReportManager(object):
                         )
         bodyArgs.append(self.__buildVerticalChart("Result By Age",search_data.Charts["ResultAge"]))
         bodyArgs.append(self.__buildVerticalChart("Matches By Age",search_data.Charts["MatchAge"],search_data.Charts["MutualAge"]))
-        #bodyArgs.append(self.__buildHorizontalChart("Ethnicity",search_data.Charts["MatchEthnicity"]))
-        #bodyArgs.append(self.__buildHorizontalChart("Ethnicity",search_data.Charts["MatchEthnicity"],search_data.Charts["MutualEthnicity"]))
-        for k,v in search_data.InfoCharts.iteritems():
+        for k in sorted(search_data.InfoCharts.keys()):
+            v =  search_data.InfoCharts[k]
             bodyArgs.append(self.__buildHorizontalChart(k,*v))
 
         bodyArgs.append(self.__buildTable("Questions By Priority",search_data.Charts["Answers"]))
@@ -297,7 +324,7 @@ class ReportManager(object):
         if not os.path.exists(basePath):
             sys.stderr.write("Output path does not exist, creating\n")
             os.mkdir(basePath)
-        indexPage   =   self.__buildIndexPage()
+        indexPage   =   self.__buildIndexPage(data)
         output = open(os.path.join(basePath,"index.html"),"w")
         output.write(indexPage)
         output.close()
@@ -380,6 +407,69 @@ def ProcessField(group,field,profiles):
             value = "No Answer"
         rv.incValue(value,1)
     return rv
+
+def SimpleProcessRatings(profiles):
+    rv = ReportGraph()
+    for i in range(5):
+        rv.setValue(i,0)
+
+    for profile in profiles:
+        rating = int(profile.Info["Rating"])
+        rv.incValue(rating,1)
+
+    return rv
+
+def ProcessRatings(group,field,profiles):
+    rv = []
+    for i in range(5):
+        rv.append(ReportGraph(True))
+
+    for profile in profiles:
+        rating = int(profile.Info["Rating"])
+        if rating == 0:
+            continue
+        groupDict   = getattr(profile,group)
+        value       = groupDict[field]
+        rv[rating-1].incValue(value,1)
+
+    rv.reverse()
+    return rv
+
+def ProcessContactColour(group,field,profiles):
+    cMap =  {
+                "red":0,
+                "yellow":3,
+                "green":2,
+                "last_contact":1
+            }
+
+    rv = []
+    for i in range(len(cMap)):
+        rv.append(ReportGraph(True))
+
+    for profile in profiles:
+        colour = profile.Info["ContactColour"]
+        groupDict   = getattr(profile,group)
+        value       = groupDict[field]
+        rv[cMap[colour]].incValue(value,1)
+    return rv
+
+def ProcessLanguages(profiles):
+    rv = ReportGraph()
+    for profile in profiles:
+        value       = profile.Details["Speaks"]
+        if len(value) == 0:
+            rv.incValue("No Answer",1)
+        else:
+            splitList = re.split(",",value)
+            for x in splitList:
+                if "(" in x:
+                    x = x[:x.find("(")]
+                x = x.strip()
+                if x != "English":
+                    rv.incValue(x,1)
+    return rv
+
 
 def BuildPage(glob,local):
     html    =   E.HTML(
@@ -465,14 +555,21 @@ if __name__ == "__main__":
         searchData.InfoCharts["Relationship Type"]  = (ProcessField("Details","Relationship Type",searchData.MatchProfiles),ProcessField("Details","Relationship Type",searchData.MutualProfiles))
         searchData.InfoCharts["Smokes"]  = (ProcessField("Details","Smokes",searchData.MatchProfiles),ProcessField("Details","Smokes",searchData.MutualProfiles))
         searchData.InfoCharts["Religion"]  = (ProcessField("Details","Religion",searchData.MatchProfiles),ProcessField("Details","Religion",searchData.MutualProfiles))
+        searchData.InfoCharts["Contact Colour"]  = (ProcessField("Info","ContactColour",searchData.MatchProfiles),ProcessField("Info","ContactColour",searchData.MutualProfiles))
         searchData.InfoCharts["Status"]  = (ProcessField("Info","Status",searchData.MatchProfiles),ProcessField("Info","Status",searchData.MutualProfiles))
-        searchData.InfoCharts["Orientation"]  = (ProcessField("Info","Orientation",searchData.MatchProfiles),ProcessField("Info","Orientation",searchData.MutualProfiles))
+        searchData.InfoCharts["Orientation"]  = (ProcessField("Details","Orientation",searchData.MatchProfiles),ProcessField("Details","Orientation",searchData.MutualProfiles))
         searchData.InfoCharts["Picture"]  = (ProcessField("Info","HasPicture",searchData.MatchProfiles),ProcessField("Info","HasPicture",searchData.MutualProfiles))
         searchData.InfoCharts["Sign"]  = (ProcessField("Details","Sign",searchData.MatchProfiles),ProcessField("Details","Sign",searchData.MutualProfiles))
         searchData.InfoCharts["Looking For - Status"]  = (ProcessField("LookingFor","Single",searchData.MatchProfiles),ProcessField("LookingFor","Single",searchData.MutualProfiles))
         searchData.InfoCharts["Looking For - Gentation"]  = (ProcessField("LookingFor","Gentation",searchData.MatchProfiles),ProcessField("LookingFor","Gentation",searchData.MutualProfiles))
         searchData.InfoCharts["Looking For - Near"]  = (ProcessField("LookingFor","Near",searchData.MatchProfiles),ProcessField("LookingFor","Near",searchData.MutualProfiles))
- 
+        searchData.InfoCharts["Ratings"] = [SimpleProcessRatings(searchData.MatchProfiles)]
+        searchData.InfoCharts["Ratings - By Age"] = ProcessRatings("Info","Age",searchData.MatchProfiles) 
+        searchData.InfoCharts["Ratings - By %s" % searchType] = ProcessRatings("Percentages",searchType,searchData.MatchProfiles) 
+        searchData.InfoCharts["Contact Colour - By Age"] = ProcessContactColour("Info","Age",searchData.MatchProfiles) 
+        searchData.InfoCharts["Contact Colour - By %s" % searchType] = ProcessContactColour("Percentages",searchType,searchData.MatchProfiles) 
+        searchData.InfoCharts["Languages other then English"] = (ProcessLanguages(searchData.MatchProfiles),ProcessLanguages(searchData.MutualProfiles))
+
     #--------------------------------------------
 
     reportName      =   os.path.basename(args[0])

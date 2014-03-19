@@ -38,14 +38,15 @@ class AbstractProfile(object):
         self.Details                =   {}
         self.LookingFor             =   {}
         self.Essays                 =   []
+        self.IsOk                   =   False
 
     def loadFromSession(self,session,user_name):
         page                        =   session.get('https://www.okcupid.com/profile/%s' % user_name)
         tree                        =   html.fromstring(page.text)
         self.Info["Name"]           =   tree.xpath('//span[@id="basic_info_sn"]/text()')[0]
         self.Info["Age"]            =   tree.xpath('//span[@id="ajax_age"]/text()')[0]
-        self.Info["Gender"]         =   tree.xpath('//span[@id="ajax_gender"]/text()')[0]
-        self.Info["Orientation"]    =   tree.xpath('//span[@id="ajax_orientation"]/text()')[0]
+        #self.Info["Gender"]         =   tree.xpath('//span[@id="ajax_gender"]/text()')[0]
+        #self.Info["Orientation"]    =   tree.xpath('//span[@id="ajax_orientation"]/text()')[0]
         self.Info["Status"]         =   tree.xpath('//span[@id="ajax_status"]/text()')[0]
         self.Info["Location"]       =   tree.xpath('//span[@id="ajax_location"]/text()')[0]
         thumb0                      =   tree.xpath('//div[@id="thumb0"]/img/@src')
@@ -80,6 +81,7 @@ class AbstractProfile(object):
                 self.Essays.append(tree.xpath('//div[@id="essay_text_%d"]/text()' % idx)[0].encode('ascii','ignore').strip() )
             except IndexError:
                 self.Essays.append(None)
+        return True
 
     def loadFromConfig(self,file_name):
         parser       =   ConfigParser.ConfigParser()
@@ -172,7 +174,18 @@ class UserProfile(AbstractProfile):
         self.Answers    =   {}
         self.TargetId   =   None
 
-    def loadFromSession(self,session,user_name):
+    def loadFromSession(self,session,user_name,error_on_failure=False):
+        try:
+            self.__loadFromSession(session,user_name)
+            return True
+        except Exception,e:
+            if error_on_failure:
+                raise
+            else:
+                self.Error = e
+                return False
+
+    def __loadFromSession(self,session,user_name):
         AbstractProfile.loadFromSession(self,session,user_name)
         self.Answers    =   {}
         link = 'http://www.okcupid.com/profile/%s/questions' % user_name
@@ -364,29 +377,7 @@ class UserProfile(AbstractProfile):
         config.add_section("Answers")
         for k,v in self.Answers.iteritems():
             config.set("Answers","%s" % k,"%s,%s,%s" % (v.Selected,v.Accepted,v.Importance))
-    """
-    def printAnswers(self):
-        sys.stderr.write("[%d] Total Questiosn\n" % len(QuestionDB.getQuestionIds()))
-        for questionId in QuestionDB.getQuestionIds():
-            if questionId not in self.Answers:
-                continue
-            text        =   QuestionDB.getText(questionId)
-            answers     =   QuestionDB.getAnswers(questionId)
-            sys.stderr.write("[%8d] Question:   %s\n" % (questionId,text))
-            for idx in range(len(answers)):
-                if idx+1 == self.Answers[questionId].Selected:
-                    selected = "[X]"
-                else:
-                    selected = "[ ]"
 
-                if (1 << idx+1) & self.Answers[questionId].Accepted:
-                    accepted = "[X]"
-                else:
-                    accepted = "[ ]"
-
-                sys.stderr.write("[%8d]\t%s%s %s\n" % (questionId,selected,accepted,answers[idx]))
-            sys.stderr.write("[%8d]\tImportance: %s\n" % (questionId,self.Answers[questionId].Importance))
-    """
     def doAnsewr(self,question_id,selected,acceptable,importance,session):
         sys.stderr.write("Answering Question [%s]\n" % question_id)
 
@@ -398,16 +389,41 @@ class MatchProfile(AbstractProfile):
         self.Answers        =   []
         self.Percentages    =   {}
 
-    def loadFromSession(self,session,user_name):
+
+    def loadFromSession(self,session,user_name,error_on_failure=False):
+        try:
+            self.__loadFromSession(session,user_name)
+            return True
+        except Exception,e:
+            if error_on_failure:
+                raise
+            else:
+                self.Error = e
+                return False
+
+    def __loadFromSession(self,session,user_name):
         AbstractProfile.loadFromSession(self,session,user_name)
         link = 'http://www.okcupid.com/profile/%s' % user_name
         page = session.get(link)
         tree            =   html.fromstring(page.text)
-        percentages     =   tree.xpath('//div[@id="percentages"]/span')
-        for percentage in percentages:
-            assert len(percentage.values()) == 1
-            idx = percentage.text.find('%')
-            self.Percentages[percentage.values()[0].capitalize()] = int(percentage.text[:idx])
+        #percentages     =   tree.xpath('//div[@id="percentages"]/span')
+        percentages     =   tree.xpath('//div[@class="percentbox"]/span/text()')
+
+        for idx in range(0,len(percentages),2):
+            
+            pIdx = percentages[idx].find('%')
+            self.Percentages[percentages[idx+1].capitalize()] = int(percentages[idx][:pIdx])
+
+        rawRating       =   tree.xpath('//ul[@id="personality-rating"]/li[@class="current-rating"]/@style')[0]
+        splitList = re.split(" ",rawRating)
+        pIndex = splitList[1].find("%%")
+        percent =   int(splitList[1][:pIndex-1])
+        self.Info["Rating"] = percent/20
+
+        contactColour   =   tree.xpath('//div[contains(@class,"message_button_contact_bar")]/@class')[0]
+        cIndex          =   contactColour.find(" ")
+        contactColour   =   contactColour[cIndex+1:]    
+        self.Info["ContactColour"]  =   contactColour
         link = 'http://www.okcupid.com/profile/%s/questions?she_care=1' % user_name
         while True:
             nextLink = self.__fillFromLink(link,session)
@@ -476,7 +492,9 @@ class MatchProfile(AbstractProfile):
 
 if __name__ == "__main__":
     usage = "usage: %prog [options] username matchname"
-    parser = optparse.OptionParser()
+    parser = optparse.OptionParser(usage)
+    parser.add_option('-e','--error',help="error on failure",action="store_true",default=False)
+
     options, args = parser.parse_args()
 
     if len(args) == 1:
@@ -497,6 +515,8 @@ if __name__ == "__main__":
     else:
         profile     =   MatchProfile()
 
-    profile.loadFromSession(session,matchName)
-    sys.stderr.write(profile.saveToString())
+    if profile.loadFromSession(session,matchName,options.error):
+        sys.stderr.write(profile.saveToString())
+    else:
+        sys.stderr.write("Profile failed to load\n")
 
