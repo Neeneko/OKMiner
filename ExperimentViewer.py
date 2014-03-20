@@ -103,7 +103,10 @@ class ReportManager(object):
         for idx in range(table.getRowCount()):
             rowArgs =   []
             for r in table.getRow(idx):
-                rowArgs.append(E.TD("%s" % r))
+                if r is None:
+                    rowArgs.append(E.TD(""))
+                else:
+                    rowArgs.append(E.TD("%s" % r))
             tableArgs.append(E.TR(*rowArgs))
 
         return E.DIV(E.H2(title),E.TABLE(*tableArgs))
@@ -308,6 +311,7 @@ class ReportManager(object):
             bodyArgs.append(self.__buildHorizontalChart(k,*v))
 
         bodyArgs.append(self.__buildTable("Questions By Priority",search_data.Charts["Answers"]))
+        bodyArgs.append(self.__buildTable("Words by Essay",search_data.Charts["Words"]))
 
         html    =   E.HTML(
                         E.HEAD( 
@@ -395,17 +399,30 @@ def ProcessAnswers(profiles):
 
     return reportTable
 
-def ProcessField(group,field,profiles):
+def ProcessField(group,field,profiles,multi_value=False,skip_values=[],strip=None):
     rv = ReportGraph()
     for profile in profiles:
         groupDict   = getattr(profile,group)
         value       = groupDict[field]
-        commaIndex  = value.find(",")
-        if commaIndex != -1:
-            value = value[:commaIndex]
-        elif len(value) == 0:
-            value = "No Answer"
-        rv.incValue(value,1)
+        if strip is not None:
+            value = value.replace(strip,"")
+        if len(value) == 0:
+            values = ["No Answer"]
+        elif multi_value:
+            splitList   =   re.split(",",value)
+            values      =   []
+            for x in splitList:
+                if "(" in x:
+                    x = x[:x.find("(")]
+                values.append(x)
+        else:
+            commaIndex  = value.find(",")
+            if commaIndex != -1:
+                value = value[:commaIndex]
+            values = [value]
+        for value in values:
+            if value not in skip_values: 
+                rv.incValue(value.strip(),1)
     return rv
 
 def SimpleProcessRatings(profiles):
@@ -454,22 +471,51 @@ def ProcessContactColour(group,field,profiles):
         rv[cMap[colour]].incValue(value,1)
     return rv
 
-def ProcessLanguages(profiles):
-    rv = ReportGraph()
-    for profile in profiles:
-        value       = profile.Details["Speaks"]
-        if len(value) == 0:
-            rv.incValue("No Answer",1)
-        else:
-            splitList = re.split(",",value)
-            for x in splitList:
-                if "(" in x:
-                    x = x[:x.find("(")]
-                x = x.strip()
-                if x != "English":
-                    rv.incValue(x,1)
-    return rv
+def ProcessEssays(profiles):
+    #stripList   =   [',','.','\n','\r','/','(',')']
+    stripList   =   ["the","i","m","me","and","to","a","you","of","do","for","to","is","that","than","my","im","it","but"]
 
+
+    table   =   ReportTable( *[ "%s" % x for x in range(10) ])
+    cols    =   []
+    for i in range(10):
+        essayDict   =   {}
+        for profile in profiles:
+            essayWords  =   profile.Essays[i]
+            if essayWords is None:
+                continue
+            #sys.stderr.write("Essay [%s] Profile [%s] Words [%s]\n" % (i,profile.Info["Name"],essayWords))
+            essayWords = re.sub(r'[^a-z ]','', essayWords.lower())
+            for stripWord in stripList:
+                essayWords.replace(stripWord,"")
+            splitList   =   re.split(" ",essayWords)
+            for essayWord in splitList:
+                if essayWord in stripList:
+                    continue
+                if len(essayWord) < 5:
+                    continue
+                if essayWord not in essayDict:
+                    essayDict[essayWord] = 0
+                essayDict[essayWord] += 1
+        #sys.stderr.write("Essay Dict %s\n" % essayDict)
+        orderedWords    = sorted(essayDict,key=essayDict.get,reverse=True)
+        while len(orderedWords) < 64:
+            orderedWords.append(None)
+        cols.append(orderedWords[:64])
+        #sys.stderr.write("Col [%d] Entries [%d]\n" % (i,len(cols[i])))
+ 
+    for j in range(0,64):
+        values = [x[j] for x in cols]
+        atLeastOne  =    False
+        for v in values:
+            if v is not None:
+                atLeastOne = True
+        if not atLeastOne:
+            break
+        table.addRow( *[x[j] for x in cols  ] )
+
+
+    return table
 
 def BuildPage(glob,local):
     html    =   E.HTML(
@@ -549,6 +595,8 @@ if __name__ == "__main__":
                 continue
             searchData.Charts["MutualAge"].incValue(int(matchProfile.Info["Age"]),1)
             searchData.MutualProfiles.append(matchProfile)
+
+        searchData.Charts["Words"]          = ProcessEssays(searchData.MutualProfiles)
         searchData.Charts["Answers"]         = ProcessAnswers(searchData.MutualProfiles)
         searchData.InfoCharts["Ethnicity"]  = (ProcessField("Details","Ethnicity",searchData.MatchProfiles),ProcessField("Details","Ethnicity",searchData.MutualProfiles))
 
@@ -563,15 +611,14 @@ if __name__ == "__main__":
         searchData.InfoCharts["Looking For - Status"]  = (ProcessField("LookingFor","Single",searchData.MatchProfiles),ProcessField("LookingFor","Single",searchData.MutualProfiles))
         searchData.InfoCharts["Looking For - Gentation"]  = (ProcessField("LookingFor","Gentation",searchData.MatchProfiles),ProcessField("LookingFor","Gentation",searchData.MutualProfiles))
         searchData.InfoCharts["Looking For - Near"]  = (ProcessField("LookingFor","Near",searchData.MatchProfiles),ProcessField("LookingFor","Near",searchData.MutualProfiles))
+        searchData.InfoCharts["Looking For - Seeking"]  = (ProcessField("LookingFor","Seeking",searchData.MatchProfiles,multi_value=True,strip="For"),ProcessField("LookingFor","Seeking",searchData.MutualProfiles,multi_value=True,strip="For"))
         searchData.InfoCharts["Ratings"] = [SimpleProcessRatings(searchData.MatchProfiles)]
         searchData.InfoCharts["Ratings - By Age"] = ProcessRatings("Info","Age",searchData.MatchProfiles) 
         searchData.InfoCharts["Ratings - By %s" % searchType] = ProcessRatings("Percentages",searchType,searchData.MatchProfiles) 
         searchData.InfoCharts["Contact Colour - By Age"] = ProcessContactColour("Info","Age",searchData.MatchProfiles) 
         searchData.InfoCharts["Contact Colour - By %s" % searchType] = ProcessContactColour("Percentages",searchType,searchData.MatchProfiles) 
-        searchData.InfoCharts["Languages other then English"] = (ProcessLanguages(searchData.MatchProfiles),ProcessLanguages(searchData.MutualProfiles))
-
+        searchData.InfoCharts["Languages other then English"] = (ProcessField("Details","Speaks",searchData.MatchProfiles,multi_value=True,skip_values=["English"]),ProcessField("Details","Speaks",searchData.MutualProfiles,multi_value=True,skip_values=["English"]))
     #--------------------------------------------
-
     reportName      =   os.path.basename(args[0])
     reportManager   =   ReportManager()
     reportManager.writeReport(reportName,reportData)

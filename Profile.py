@@ -78,7 +78,18 @@ class AbstractProfile(object):
 
         for idx in range(10):
             try:
-                self.Essays.append(tree.xpath('//div[@id="essay_text_%d"]/text()' % idx)[0].encode('ascii','ignore').strip() )
+                #self.Essays.append(tree.xpath('//div[@id="essay_text_%d"]/text()' % idx)[0].encode('ascii','ignore').strip() )
+                raws = tree.xpath('//div[@id="essay_text_%d"]/text()' % idx)
+                words = ""
+                for raw in raws:
+                    sys.stderr.write("Raw [%s]\n" % raw)
+                    raw     =   raw.lower()
+                    raw     =   re.sub(r'[\n\r]',' ', raw)
+                    raw     =   re.sub(r'[^a-z ]','', raw)
+
+                    words += "%s " % raw
+                self.Essays.append(words)
+
             except IndexError:
                 self.Essays.append(None)
         return True
@@ -406,7 +417,6 @@ class MatchProfile(AbstractProfile):
         link = 'http://www.okcupid.com/profile/%s' % user_name
         page = session.get(link)
         tree            =   html.fromstring(page.text)
-        #percentages     =   tree.xpath('//div[@id="percentages"]/span')
         percentages     =   tree.xpath('//div[@class="percentbox"]/span/text()')
 
         for idx in range(0,len(percentages),2):
