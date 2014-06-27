@@ -1,6 +1,11 @@
 import re
 import sys
+import json
+import logging
+import time
+import requests
 from lxml import html
+from SessionManager import SessionManager
 
 
 def getLocationId(session,location):
@@ -45,6 +50,15 @@ class AgeFilter(SearchFilter):
     def genFilter(self):
         return "2,%s,%s" % (self.__lower,self.__upper)
 
+class RatingFilter(SearchFilter):
+    def __init__(self,lower,upper):
+        self.__lower    =   lower
+        self.__upper    =   upper
+
+    def genFilter(self):
+        return "25,%s,%s" % (self.__lower,self.__upper)
+
+
 class LastOnFilter(SearchFilter):
 
     NOW     =   3600
@@ -81,10 +95,18 @@ class LocationIdFilter(SearchFilter):
         if int(distance) not in ZipCodeFilter.VALID_DISTANCE:
             raise RuntimeError,"Invalid Distance [%s]" % distance
         self.__locId    =   locid
-        self.__distance =   distance
+        if long(self.__locId) == 0:
+            self.__distance =   32768
+        else:
+            self.__distance =   distance
 
     def genFilter(self):
         return "3,%s&locid=%s" % (self.__distance,self.__locId)
+
+class LocationAnywhereFilter(object):
+
+    def genFilter(self):
+        return "locid=0"
 
 class GentationFilter(SearchFilter):
 
@@ -107,9 +129,24 @@ class GentationFilter(SearchFilter):
                 }
 
     def __init__(self,value):
-        if value not in GentationFilter.CONSTANTS:
-            raise RuntimeError,"Invalid Gentation Option [%s]" % value
-        self.__value = value
+        if isinstance(value,basestring):
+            if value not in GentationFilter.CONSTANTS:
+                raise RuntimeError,"Invalid Gentation Option [%s]" % value
+            self.__value = value
+        elif isinstance(value,int):
+            self.__value    =   self.getGentationString(value)
+        else:
+            raise RuntimeError
+
+    @staticmethod
+    def getGentationString(value):
+        for k,v in GentationFilter.CONSTANTS.iteritems():
+            if v == value:
+                return k
+
+    @staticmethod
+    def getGentation(value):
+        return GentationFilter.CONSTANTS[value]
 
     @staticmethod
     def genGentation(gender,orientation):
@@ -176,97 +213,49 @@ def genSearchURL(*args):
         """
         return url
 
-class SearchResult(object):
-
-    def __init__(self,name,percent,age,loc,type):
-        self.Name       =   name
-        self.Percent    =   percent
-        self.Age        =   int(age)
-        self.Loc        =   loc
-        self.Type       =   type
-
-    def __str__(self):
-        return "[%3d%%][%s] - %s - %s - %s" % (self.Percent,self.Type,self.Age,self.Name,self.Loc)
-
-    def __cmp__(self,other):
-        return cmp(other.Percent,self.Percent)
-
-def doSearch(session,url):
-    pageSize    =   32
+def doSearchJSON(url):
+    session =   SessionManager.getSession()
+    pageSize    =   64
     rv  =   []
     
 
     i = 0
-    time = 1
+    timeKey = 1
     while True:
-        newURL = url + "&timekey=%s&count=%s&low=%s" % (time,pageSize,(1+i*pageSize))
+        newURL = url + "&timekey=%s&count=%s&low=%s&okc_api=1" % (timeKey,pageSize,(1+i*pageSize))
         if i == 0:
             newURL += "#Search"
 
-        page = session.get(newURL)
-        time,_ = re.search('CurrentGMT = new Date\(([\d]+)\*([\d]+)\)',page.text).groups()
+        try:
+            print newURL
+            page = session.get(newURL)
+        except requests.exceptions.ConnectionError:
+            logging.warn("Connection error, sleeping 30 seconds")
+            time.sleep(30)
+            continue
+        """
+        print page
+        print page.text
+        print page.status_code
+        print page.reason
+        """
+        if page.status_code != 200:
+            logging.warn("Page Error [%s:%s] sleeping 60 seconds" % (page.status_code,page.reason))
+            time.sleep(30)
+            continue
 
-        tree        =   html.fromstring(page.text)
-        userNames   =   tree.xpath('//div[@class="username"]/a/text()')
-        rv          +=  userNames
-        if len(userNames) != 0:
-            i+=1
-        else:
-            break
+        data        =   json.loads(page.text)
+        data["url"] =   newURL
+        logging.info("Search total_matches [%s] matches [%s]" % (data["total_matches"],len(data["amateur_results"])))
+        if len(data["amateur_results"]) == 0:
+            total = 0
+            for v in rv:
+                total += len(v["amateur_results"])
+            logging.info("\tTotal [%s]" % total)
 
-    #sys.stderr.write("[%s] Results\n" % len(rv))
-    return rv
+            return rv
 
-
-def doSearch2(session,url,min_match):
-    pageSize    =   32
-    rv  =   []
-    
-
-    i = 0
-    time = 1
-    while True:
-        newURL = url + "&timekey=%s&count=%s&low=%s" % (time,pageSize,(1+i*pageSize))
-        if i == 0:
-            newURL += "#Search"
-
-        sys.stderr.write("URL [%s]\n" % (newURL)) 
-        page = session.get(newURL)
-        sys.stderr.write("Page [%s] [%s:%s] [%s]\n" % (i,page.status_code,page.reason,page.url))
-        time,_ = re.search('CurrentGMT = new Date\(([\d]+)\*([\d]+)\)',page.text).groups()
-        sys.stderr.write("Index [%s]\n" % time)
-        #gmtIndex = page.text.find("CurrentGMT")
-        #sys.stderr.write("GMTIndex [%d]\n" % gmtIndex)
-
-        tree        =   html.fromstring(page.text)
-        userNames   =   tree.xpath('//div[@class="username"]/a/text()')
-        userAges    =   tree.xpath('//div[@class="userinfo"]/span[@class="age"]/text()')
-        userLocs    =   tree.xpath('//div[@class="userinfo"]/span[@class="location"]/text()')
-        rawPercents =   tree.xpath('//div[@class="match_card_text"]/div/text()')
-        percents    =   []
-        i           =   0
-
-        #@TODO - This is pretty sloppy
-        for raw in rawPercents:
-            idx = raw.find('%')
-            if idx != -1:
-                percent = (int(raw[:idx]))
-                percents.append(percent)
-                if percent >= min_match:
-                    searchResult = SearchResult(userNames[i],percent,userAges[i],userLocs[i],raw[idx+1:].strip())
-                    sys.stderr.write("%s\n" % (searchResult))
-                    rv.append( searchResult )
-                    i += 1
-                else:
-                    return rv
-
-        if len(userNames) != len(percents):
-            raise RuntimeError,"Mismatch between Match [%s] and Profiles [%s]" % (len(percents),len(userNames))
-
-        if len(percents) != 0 and len(percents) == pageSize:
-            i+=1
-        else:
-            break
-
-    #sys.stderr.write("[%s] Results\n" % len(rv))
-    return rv
+        rv.append(data)
+        timeKey    =   data["cache_timekey"]
+        i+=1
+        time.sleep(10)

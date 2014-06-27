@@ -5,8 +5,7 @@ import getpass
 import base64
 import ConfigParser
 import requests
-from Session import MinerSession
-   
+  
 class ProfileManager(object):
 
     def __init__(self):

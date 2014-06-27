@@ -2,13 +2,169 @@ import datetime
 import os
 import gc
 import sys
+import csv
 import ConfigParser
-
-from ProfileManager import ProfileManager
+import logging
+import shutil
+import shlex
+import json
+import urllib
+from SessionManager import SessionManager
 from Profile import UserProfile,MatchProfile
-from Search import *
+from Search import GentationFilter
+
 
 class   MinerExperiment(object):
+
+    PROPERTIES  =   {
+                        "UserName"      : None,
+                        "MinMatch"      : "80",
+                        "AgeRange"      : "10",
+                        "AgeMin"        : None,
+                        "AgeMax"        : None,
+                        "Gentation"     : None
+                    }
+
+    def __init__(self,experiment_name):
+        self.__rootPath             =   os.path.dirname(sys.modules[__name__].__file__)
+        self.__dataPath             =   os.path.join(os.path.dirname(sys.modules[__name__].__file__), "Data")
+        self.__expPath              =   os.path.join(self.__dataPath,experiment_name)
+        self.__searchPath           =   os.path.join(self.__expPath,"Searches")
+        self.__profilePath          =   os.path.join(self.__expPath,"Profiles")
+        self.__configFile           =   os.path.join(self.__expPath,"experiment.ini")
+        self.__expName              =   experiment_name
+        self.__config               =   ConfigParser.ConfigParser()
+        self.__config.optionxform   =   str
+ 
+    def init(self):
+        logging.info("Initializing Experiment [%s]" % self.__expName)
+
+        bigConfigPath   =   os.path.join(self.__rootPath,"Config","experiments.ini")
+        if not os.path.exists(bigConfigPath):
+            raise RuntimError,"Global experiment list not found"
+
+        bigConfig       =   ConfigParser.ConfigParser()
+        bigConfig.optionxform=str
+        
+        bigConfig.read(bigConfigPath)
+        if not bigConfig.has_section(self.__expName):
+            raise RuntimeError,"No such experiment [%s] in global list" % self.__expName       
+
+        if not os.path.exists(self.__dataPath):
+            logging.warn("Data path does not exist, creating")
+            os.mkdir(self.__dataPath)
+
+        if os.path.exists(self.__expPath):
+            logging.warn("Old experiment directory exists, clearing")
+            shutil.rmtree(self.__expPath)
+        os.mkdir(self.__expPath)
+        os.mkdir(self.__searchPath)
+        os.mkdir(self.__profilePath)
+
+        self.__config.add_section("Settings")
+        self.__config.add_section("Locations")
+        self.__config.add_section("User")
+        for k,v in MinerExperiment.PROPERTIES.iteritems():
+            if bigConfig.has_option(self.__expName,k):
+                self.__config.set("Settings",k,bigConfig.get(self.__expName,k))
+            else:
+                self.__config.set("Settings",k,v)
+
+        SessionManager.doLogin(self.getUserName())
+
+        self.__fillUserProfile()
+
+        if bigConfig.has_option(self.__expName,"Locations"):
+            parser = shlex.shlex(bigConfig.get(self.__expName,"Locations"))
+            parser.whitespace += ','
+            for location in parser:
+                self.__config.set("Locations",location,"%s" % self.__getLocation(location))
+        else:
+            self.__config.set("Locations","Near me","0")
+
+        self.saveConfig()
+
+    def getSearchPath(self):
+        return self.__searchPath
+
+    def getProfilePath(self):
+        return self.__profilePath
+
+    def saveConfig(self):
+       with open(self.__configFile,'wb') as configFile:
+            self.__config.write(configFile)
+
+    def loadConfig(self,config_name):
+        self.__config.read(config_name)
+
+    def getUserName(self):
+        return self.__config.get("Settings","UserName")
+
+    def getAgeRange(self):
+        try:
+            ageMin      =   self.__config.getint("Settings","AgeMin")
+        except TypeError:
+            ageMin      =   None
+        try:
+            ageMax      =   self.__config.getint("Settings","AgeMax")
+        except TypeError:
+            ageMax      =   None
+
+        try:
+            ageRange    =   self.__config.getint("Settings","AgeRange")
+        except TypeError:
+            ageRange    =   0
+
+        userAge     =   self.__config.getint("User","Age")
+
+        ageLow      =   userAge-ageRange
+        ageHigh     =   userAge+ageRange
+
+        if ageMin is not None:
+            ageLow  =   min(ageLow,ageMin)
+
+        if ageMax is not None:
+            ageHigh =   max(ageHigh,ageMax)
+
+        return range(ageLow,ageHigh+1)
+
+    def getLocationRange(self):
+        return [ x for (_,x) in self.__config.items("Locations")]
+
+    def getGentationRange(self):
+        gentation   =   GentationFilter.getGentation(self.__config.get("Settings","Gentation"))
+        rv          =   []
+        for i in range(6):
+            tmp = 1<<i
+            if gentation&tmp != 0:
+                rv.append(gentation&tmp)
+        return rv
+
+    def __getLocation(self,name):
+        payload =   {
+                        "okc_api"   :   1,
+                        "func"      :   "query",
+                        "query"     :   name
+                    }
+        payloadStr  =   urllib.urlencode(payload)
+
+        page = SessionManager.getSession().get("http://www.okcupid.com/locquery?%s" % payloadStr)
+        data    =   json.loads(page.text)
+        return data["locid"]
+
+    def __fillUserProfile(self):
+        payload =   {
+                        "okc_api"   :   1
+                    }
+        payloadStr  =   urllib.urlencode(payload)
+
+        page = SessionManager.getSession().get("http://www.okcupid.com/profile/%s?%s" % (self.getUserName(),payloadStr))
+        data    =   json.loads(page.text)
+
+
+        self.__config.set("User","Age","%s" % data["age"])
+
+class   _MinerExperiment(object):
 
     PROPERTIES  =   {
                         "UserName"      : None,
@@ -67,10 +223,6 @@ class   MinerExperiment(object):
         os.mkdir(self.__expPath)
         self.__config.add_section("Settings")
         self.__config.add_section("Searches")
-        """
-        self.__config.add_section("Matches")
-        self.__config.add_section("Enemies")
-        """
         for k,v in MinerExperiment.PROPERTIES.iteritems():
             if k in properties.keys():
                 self.__config.set("Settings",k,properties[k])
