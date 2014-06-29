@@ -358,7 +358,6 @@ class ExperimentDb(object):
         cursor.execute(query)
         return cursor.fetchall()
 
-
     def GetUsersYoungerThen(self,seconds):
         cursor = self.__db.cursor()
         cursor.execute("SELECT UserId FROM Users WHERE CrawlDate-JoinDate < %d" % seconds)
@@ -373,8 +372,6 @@ class ExperimentDb(object):
         cursor = self.__db.cursor()
         cursor.execute("SELECT UserId FROM Users WHERE CrawlDate-JoinDate > %d AND CrawlDate-JoinDate < %d " % (older,younger))
         return cursor.fetchall()
-
-
 
 def LoadSavedBlob(file_name):
     return ExperimentDb(file_name)
@@ -398,10 +395,27 @@ def CreateLiveBlob(file_name,experiment):
     db.loadExperiment(os.path.join("Data",experiment,"experiment.ini"),experiment)
     return db
 
+def DoSummary(experiment):
+    totalSearches   =   0
+    cielingSearches =   0
+
+    for fileName in glob.glob(os.path.join("Data",experiment,"Searches","*.p0.json")):
+        totalSearches   +=  1
+        with open(fileName) as fp:
+            data        =   json.load(fp)
+            if data["total_matches"] == 1000:
+                cielingSearches += 1
+
+    logging.info("Total Searches   [%s]" % totalSearches)
+    logging.info("Cieling Searches [%s]" % cielingSearches)   
+            
+
+
 if __name__ == "__main__":
     usage       =   "usage: %prog [options] experiment"
     description =   "Process an experiment into a database"
     parser = optparse.OptionParser(usage=usage,description=description)
+    parser.add_option('-s','--summarize',help="just summarize, do not build the db",action="store_true",default=False)
 
     options, args = parser.parse_args()
 
@@ -418,6 +432,9 @@ if __name__ == "__main__":
     if not os.path.exists(expIni):
         logging.error("No such experiment [%s]" % args[0])
 
-    with CreateLiveBlob("cake.db",args[0]) as db:
-        pass
+    if options.summarize:
+        DoSummary(args[0])
+    else:
+        with CreateLiveBlob("cake.db",args[0]) as db:
+            pass
 
