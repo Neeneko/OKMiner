@@ -182,7 +182,7 @@ class SimpleGraph(object):
         self.__total        +=  value
 
     def getValue(self,x):
-        if self.__percent:
+        if self.__percent and self.__total != 0:
             return 100 * self.__Data.get(x,0)/self.__total
         else:
             return self.__Data.get(x,0)

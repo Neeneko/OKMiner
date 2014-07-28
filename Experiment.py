@@ -1,6 +1,7 @@
 import datetime
 import os
 import gc
+import re
 import sys
 import csv
 import ConfigParser
@@ -22,7 +23,8 @@ class   MinerExperiment(object):
                         "AgeRange"      : "10",
                         "AgeMin"        : None,
                         "AgeMax"        : None,
-                        "Gentation"     : None
+                        "Gentation"     : None,
+                        "RatingSlices"  : None
                     }
 
     def __init__(self,experiment_name):
@@ -64,6 +66,7 @@ class   MinerExperiment(object):
         self.__config.add_section("Settings")
         self.__config.add_section("Locations")
         self.__config.add_section("User")
+        self.__config.add_section("Timestamps")
         for k,v in MinerExperiment.PROPERTIES.iteritems():
             if bigConfig.has_option(self.__expName,k):
                 self.__config.set("Settings",k,bigConfig.get(self.__expName,k))
@@ -78,9 +81,12 @@ class   MinerExperiment(object):
             parser = shlex.shlex(bigConfig.get(self.__expName,"Locations"))
             parser.whitespace += ','
             for location in parser:
-                self.__config.set("Locations",location,"%s" % self.__getLocation(location))
+                if location == "Anywhere":
+                    self.__config.set("Locations",location,"%s,0" % self.__getLocation(location))
+                else:
+                    self.__config.set("Locations",location,"%s,25" % self.__getLocation(location))
         else:
-            self.__config.set("Locations","Near me","0")
+            self.__config.set("Locations","Near me","%s,25" % self.__getLocation("Near me"))
 
         self.saveConfig()
 
@@ -94,11 +100,45 @@ class   MinerExperiment(object):
        with open(self.__configFile,'wb') as configFile:
             self.__config.write(configFile)
 
+    def saveTimestamp(self,label):
+        self.__config.set("Timestamps",label,str(datetime.datetime.now()))
+        self.saveConfig()
+
     def loadConfig(self,config_name):
         self.__config.read(config_name)
 
     def getUserName(self):
         return self.__config.get("Settings","UserName")
+
+    def getRatingSlices(self):
+        if self.__config.get("Settings","RatingSlices") == "None" or self.__config.get("Settings","RatingSlices") is None:
+            return None
+        splitList = re.split(",",self.__config.get("Settings","RatingSlices"))
+        count   =   int(splitList[0])
+
+        if count == 0:
+            return None
+
+        if len(splitList) == 1:
+            rv = []
+            for rating in range(count):
+                rlow   =   rating*(10000/count)
+                rhigh   =   (rating+1)*(10000/count)
+                rv.append( (rlow,rhigh) )
+            return rv
+        elif splitList[1] == "Interlaced":
+            rv = []
+            sliceSize   =   10000/count
+            for rating in range(count):
+                rlow   =   rating*(sliceSize)
+                rhigh   =   (rating+1)*(sliceSize)
+                rv.append( (rlow,rhigh) )
+                rlow   =   rating*(sliceSize)+sliceSize/2
+                rhigh   =  min((rating+1)*(sliceSize)+sliceSize/2,10000)
+                rv.append( (rlow,rhigh) )
+            return rv
+        else:
+            raise RuntimeError
 
     def getAgeRange(self):
         try:
@@ -129,7 +169,7 @@ class   MinerExperiment(object):
         return range(ageLow,ageHigh+1)
 
     def getLocationRange(self):
-        return [ x for (_,x) in self.__config.items("Locations")]
+        return [ re.split(',',x) for (_,x) in self.__config.items("Locations")]
 
     def getGentationRange(self):
         gentation   =   GentationFilter.getGentation(self.__config.get("Settings","Gentation"))

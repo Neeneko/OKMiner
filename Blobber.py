@@ -398,17 +398,20 @@ def CreateLiveBlob(file_name,experiment):
 def DoSummary(experiment):
     totalSearches   =   0
     cielingSearches =   0
+    totalProfiles   =   0
 
     for fileName in glob.glob(os.path.join("Data",experiment,"Searches","*.p0.json")):
         totalSearches   +=  1
         with open(fileName) as fp:
             data        =   json.load(fp)
             if data["total_matches"] == 1000:
-                cielingSearches += 1
+                cielingSearches +=  1
+            totalProfiles   +=  data["total_matches"]
+
 
     logging.info("Total Searches   [%s]" % totalSearches)
     logging.info("Cieling Searches [%s]" % cielingSearches)   
-            
+    logging.info("Total Profiles   [%s]" % totalProfiles)
 
 
 if __name__ == "__main__":

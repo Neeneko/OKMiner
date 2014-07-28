@@ -95,10 +95,7 @@ class LocationIdFilter(SearchFilter):
         if int(distance) not in ZipCodeFilter.VALID_DISTANCE:
             raise RuntimeError,"Invalid Distance [%s]" % distance
         self.__locId    =   locid
-        if long(self.__locId) == 0:
-            self.__distance =   32768
-        else:
-            self.__distance =   distance
+        self.__distance =   distance
 
     def genFilter(self):
         return "3,%s&locid=%s" % (self.__distance,self.__locId)
@@ -214,8 +211,12 @@ def genSearchURL(*args):
         return url
 
 def doSearchJSON(url):
+    """
+    TODO -  this currently does one search to many, but we can not depend on the result numbers since
+            blocked profiles are not returned.   So gotta make that more effient.
+    """
     session =   SessionManager.getSession()
-    pageSize    =   64
+    pageSize    =   200
     rv  =   []
     
 

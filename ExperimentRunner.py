@@ -8,28 +8,68 @@ from SessionManager import SessionManager
 from Search import *
 
 def runSearches(experiment):
+    allResults      =   set()
+    duplicates      =   0
+    empty           =   0
+    searches        =   0
     logging.info("Age       [%s]" % str(experiment.getAgeRange()))
     logging.info("Location  [%s]" % str(experiment.getLocationRange()))
     logging.info("Gentation [%s]" % str(experiment.getGentationRange()))
+    logging.info("Rating    [%s]" % str(experiment.getRatingSlices()))
     for age in experiment.getAgeRange():
-        for location in experiment.getLocationRange():
-            for gentation in experiment.getGentationRange():
-                for rating in range(5):
-                    rlow   =   rating*2000
-                    rhigh   =   (rating+1)*2000-1
-                    if int(location) == 0:
-                        locationFilter  =   LocationAnywhereFilter()
-                    else:
-                        locationFilter  =   LocationIdFilter(location,50)
+        for (location,distance) in experiment.getLocationRange():
+            if int(location) == 0 and int(distance) == 0:
+                locationFilter  =   LocationAnywhereFilter()
+            else:
+                locationFilter  =   LocationIdFilter(location,distance)
 
-                    url = genSearchURL(MatchOrder("MATCH"),AgeFilter(age,age),LastOnFilter(LastOnFilter.WEEK),locationFilter,GentationFilter(gentation),PhotoFilter(False),StatusFilter(StatusFilter.ANY),RatingFilter(rlow,rhigh))
-                    results         =   doSearchJSON(url)
-                    for i in range(len(results)):
-                        searchName  =   "%s.%s.%s.%s-%s.p%s.json" % (age,location,gentation,rlow,rhigh,i)
-                        fileName    =   os.path.join(experiment.getSearchPath(),searchName)
-                        with open(fileName,'wb') as fp:
-                            json.dump(results[i],fp)
+            for gentation in experiment.getGentationRange():
+                if experiment.getRatingSlices() == None:
                     time.sleep(10)
+                    url = genSearchURL(MatchOrder("MATCH"),AgeFilter(age,age),LastOnFilter(LastOnFilter.WEEK),locationFilter,GentationFilter(gentation),PhotoFilter(False),StatusFilter(StatusFilter.ANY))
+                    results         =   doSearchJSON(url)
+                    searches        +=  1
+                    if len(results) == 0:
+                        empty       +=  1
+                    for i in range(len(results)):
+                        searchName      =   "%s.%s.%s.p%s.json" % (age,location,gentation,i)
+                        fileName        =   os.path.join(experiment.getSearchPath(),searchName)
+                        with open(fileName,'wb') as fp:
+                            json.dump(results[i],fp,indent=4, separators=(',', ': '))
+                        for result in results[i]["amateur_results"]:
+                            uid = result["userid"]
+                            if uid not in allResults:
+                                allResults.add(uid)
+                            else:
+                                duplicates   +=  1
+
+                else:
+                    for rlow,rhigh in experiment.getRatingSlices():
+                        url = genSearchURL(MatchOrder("MATCH"),AgeFilter(age,age),LastOnFilter(LastOnFilter.WEEK),locationFilter,GentationFilter(gentation),PhotoFilter(False),StatusFilter(StatusFilter.ANY),RatingFilter(rlow,rhigh))
+                        results         =   doSearchJSON(url)
+                        searches        +=  1
+                        if len(results) == 0:
+                            empty       +=  1
+                        for i in range(len(results)):
+                            searchName  =   "%s.%s.%s.%s-%s.p%s.json" % (age,location,gentation,rlow,rhigh,i)
+                            fileName    =   os.path.join(experiment.getSearchPath(),searchName)
+                            results[i]["filters"]["MinRating"]  =   rlow
+                            results[i]["filters"]["MaxRating"]  =   rhigh
+                            with open(fileName,'wb') as fp:
+                                json.dump(results[i],fp,indent=4, separators=(',', ': '))
+                            for result in results[i]["amateur_results"]:
+                                uid = result["userid"]
+                                if uid not in allResults:
+                                    allResults.add(uid)
+                                else:
+                                    duplicates   +=  1
+                        time.sleep(10)
+    logging.info("**************************")
+    logging.info("*Total Unique  [%8s]*" % len(allResults))
+    logging.info("*Duplicates    [%8s]*" % duplicates)
+    logging.info("*Searches      [%8s]*" % searches)
+    logging.info("*Empty Results [%8s]*" % empty)
+    logging.info("**************************")
 
 if __name__ == "__main__":
     usage       =   "usage: %prog [options] experiment"
@@ -48,7 +88,9 @@ if __name__ == "__main__":
     experiment  =   MinerExperiment(experimentName)
     experiment.init()
 
+    experiment.saveTimestamp("StartSearch")
     runSearches(experiment)
+    experiment.saveTimestamp("EndSearch")
 
 
     """
